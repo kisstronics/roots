@@ -37,15 +37,21 @@ export function readCookie(req, name) {
   return "";
 }
 
-export function writeCookie(res, name, value, { maxAge, secure = process.env.COOKIE_SECURE === "true" } = {}) {
-  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", "SameSite=Lax"];
+export function writeCookie(res, name, value, { maxAge, secure = process.env.COOKIE_SECURE === "true", sameSite = "Lax" } = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`, "Path=/", "HttpOnly", `SameSite=${sameSite}`];
   if (maxAge !== undefined) parts.push(`Max-Age=${maxAge}`);
-  if (secure) parts.push("Secure");
+  if (secure || sameSite === "None") parts.push("Secure");
   res.append("Set-Cookie", parts.join("; "));
 }
 
-export function clearCookie(res, name) {
-  writeCookie(res, name, "", { maxAge: 0 });
+export function clearCookie(res, name, options = {}) {
+  writeCookie(res, name, "", { maxAge: 0, ...options });
+}
+
+export function cookieFlags(req) {
+  const host = hostnameOf(req.get("host") || "");
+  if (host.endsWith(".onrender.com")) return { secure: true, sameSite: "None" };
+  return { secure: process.env.COOKIE_SECURE === "true", sameSite: "Lax" };
 }
 
 const DEFAULT_APP_HOSTS = ["roots-8rak.vercel.app"];
@@ -55,6 +61,11 @@ export function publicBase(req) {
   if (forwarded) return forwarded;
   const configured = (process.env.APP_PUBLIC_URL || "").replace(/\/$/, "");
   const host = req.get("host") || "";
+  const hostname = hostnameOf(host);
+  if (hostname.endsWith(".onrender.com")) {
+    if (configured && !isLocalUrl(configured) && hostnameOf(configured) !== hostname) return configured;
+    return `https://${DEFAULT_APP_HOSTS[0]}/roots`;
+  }
   const live = host ? `${req.protocol}://${host}/roots` : "";
   if (live && !isLocalUrl(live) && (!configured || isLocalUrl(configured))) return live;
   if (configured) return configured;
@@ -62,9 +73,21 @@ export function publicBase(req) {
 }
 
 export function googleCallbackUrl(req) {
-  const forwarded = forwardedAppBase(req);
-  if (forwarded) return `${forwarded}/api/auth/google/callback`;
-  return configuredOrLive(req, process.env.GOOGLE_CALLBACK_URL, "/api/auth/google/callback");
+  const configured = (process.env.GOOGLE_CALLBACK_URL || "").trim();
+  if (configured && !isLocalUrl(configured)) return configured;
+  const host = req.get("host") || "";
+  if (host && !isLocalUrl(`https://${host}`)) return `${req.protocol}://${host}/api/auth/google/callback`;
+  return configuredOrLive(req, configured, "/api/auth/google/callback");
+}
+
+export function allowAppOrigin(req, res) {
+  const origin = req.get("origin");
+  if (!origin || !allowedAppHosts().has(hostnameOf(origin))) return;
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.append("Vary", "Origin");
 }
 
 export function configuredOrLive(req, envValue, suffix) {

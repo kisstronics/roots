@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { useAuth } from "../lib/auth";
-import { appUrl } from "../lib/paths";
+import { apiUrl } from "../lib/paths";
 
 const ERRORS: Record<string, string> = {
   google: "Google sign-in did not finish. Try again.",
@@ -46,7 +46,7 @@ export function LoginPage() {
               : "Use the Google account for your families. A new Google account creates an Our Roots account."}
           </p>
           {error && <p className="form-error">{error}</p>}
-          <a className="button primary" href={appUrl(`/api/auth/google?mode=${mode}`)}>
+          <a className="button primary" href={apiUrl(`/api/auth/google?mode=${mode}`)}>
             Continue with Google
           </a>
         </section>
