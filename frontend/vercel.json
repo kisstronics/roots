@@ -1,13 +1,16 @@
 {
-  "redirects": [
-    { "source": "/", "destination": "/roots/", "permanent": false }
-  ],
+  "regions": ["sin1"],
+  "installCommand": "npm install && npm install --prefix ../backend",
   "rewrites": [
+    { "source": "/roots/api/:path*", "destination": "/api/:path*" },
     { "source": "/roots/assets/:path*", "destination": "/assets/:path*" },
     { "source": "/roots/families/:path*", "destination": "/families/:path*" },
     { "source": "/roots/favicon.svg", "destination": "/favicon.svg" },
     { "source": "/roots", "destination": "/index.html" },
     { "source": "/roots/", "destination": "/index.html" },
     { "source": "/roots/:path*", "destination": "/index.html" }
+  ],
+  "redirects": [
+    { "source": "/", "destination": "/roots/", "permanent": false }
   ]
 }

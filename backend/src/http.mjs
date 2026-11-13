@@ -49,8 +49,28 @@ export function clearCookie(res, name) {
 }
 
 export function publicBase(req) {
-  if (process.env.APP_PUBLIC_URL) return process.env.APP_PUBLIC_URL.replace(/\/$/, "");
-  return `${req.protocol}://${req.get("host")}/roots`;
+  const configured = (process.env.APP_PUBLIC_URL || "").replace(/\/$/, "");
+  const host = req.get("host") || "";
+  const live = host ? `${req.protocol}://${host}/roots` : "";
+  if (live && !isLocalUrl(live) && (!configured || isLocalUrl(configured))) return live;
+  if (configured) return configured;
+  return live;
+}
+
+export function configuredOrLive(req, envValue, suffix) {
+  const configured = (envValue || "").trim();
+  const base = publicBase(req);
+  if (!configured || (isLocalUrl(configured) && !isLocalUrl(base))) return `${base}${suffix}`;
+  return configured;
+}
+
+function isLocalUrl(value) {
+  try {
+    const host = new URL(value).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
 }
 
 export function redirectApp(res, req, path) {
