@@ -1,0 +1,225 @@
+{
+  "slug": "bhogala",
+  "name": "bhogala",
+  "people": [
+    {
+      "id": "a5ad792e",
+      "firstName": "Narasimha Reddy",
+      "lastName": "bhogala",
+      "gender": "male",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "a657f833",
+      "firstName": "Hari Kumar",
+      "lastName": "bhogala",
+      "gender": "male",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "a5ad792e"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "007dc096",
+      "firstName": "Sujatha",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "a5ad792e"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "8d0977aa",
+      "firstName": "Narasimha Reddy",
+      "lastName": "bhogala",
+      "gender": "male",
+      "living": false,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "a6714419",
+      "firstName": "Pedda Narasamma",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "50528e79",
+      "firstName": "Chinna Narasamma",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": false,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "699028b5",
+      "firstName": "Balamma",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "e9035324",
+      "firstName": "Mahalakshmi",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "a3ce0aeb",
+      "firstName": "Rama Krishna",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "8d0977aa"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "f1547c0e",
+      "firstName": "D1",
+      "lastName": "bhogala",
+      "gender": "female",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "a657f833"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    },
+    {
+      "id": "e385a3e9",
+      "firstName": "S1",
+      "lastName": "bhogala",
+      "gender": "male",
+      "living": true,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [
+        "a657f833"
+      ],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    }
+  ],
+  "updatedAt": "2026-11-11T06:57:40.393Z"
+}

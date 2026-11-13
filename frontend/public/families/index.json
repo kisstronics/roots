@@ -1,0 +1,24 @@
+{
+  "families": [
+    {
+      "slug": "bhogala",
+      "name": "bhogala",
+      "people": 11
+    },
+    {
+      "slug": "chilakala",
+      "name": "chilakala",
+      "people": 121
+    },
+    {
+      "slug": "mallella",
+      "name": "mallella",
+      "people": 1
+    },
+    {
+      "slug": "sharma",
+      "name": "Sharma",
+      "people": 19
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: our_roots
+      POSTGRES_PASSWORD: our_roots
+      POSTGRES_DB: our_roots
+    ports:
+      - "5432:5432"
+    volumes:
+      - our_roots_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U our_roots -d our_roots"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  our_roots_pg:

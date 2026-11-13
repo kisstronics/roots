@@ -1,0 +1,19 @@
+{
+  "name": "our-roots-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.mjs",
+    "start": "node src/index.mjs",
+    "test": "node --test",
+    "verify": "node scripts/verify-db.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "pg": "^8.16.3"
+  }
+}

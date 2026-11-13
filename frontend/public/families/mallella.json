@@ -1,0 +1,25 @@
+{
+  "slug": "mallella",
+  "name": "mallella",
+  "people": [
+    {
+      "id": "efa1373c",
+      "firstName": "Rami Reddy",
+      "lastName": "mallella",
+      "gender": "male",
+      "living": false,
+      "birthYear": null,
+      "deathYear": null,
+      "birthday": null,
+      "deathday": null,
+      "birthLocation": "",
+      "currentLocation": "",
+      "notes": "",
+      "parentIds": [],
+      "spouseIds": [],
+      "siblingIds": [],
+      "photo": null
+    }
+  ],
+  "updatedAt": "2026-11-11T06:50:32.880Z"
+}
