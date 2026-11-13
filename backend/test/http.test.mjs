@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { configuredOrLive, publicBase } from "../src/http.mjs";
+import { configuredOrLive, googleCallbackUrl, publicBase } from "../src/http.mjs";
 
 function req(host, protocol = "https") {
   return { protocol, get: (header) => (header === "host" ? host : "") };
@@ -12,6 +12,30 @@ test("a public host replaces a localhost app url", () => {
   try {
     assert.equal(publicBase(req("roots-8rak.vercel.app")), "https://roots-8rak.vercel.app/roots");
     assert.equal(publicBase(req("localhost:5173", "http")), "http://localhost:5173/roots");
+  } finally {
+    if (previous === undefined) delete process.env.APP_PUBLIC_URL;
+    else process.env.APP_PUBLIC_URL = previous;
+  }
+});
+
+test("a proxied Vercel request returns to the Vercel app", () => {
+  const previous = process.env.APP_PUBLIC_URL;
+  process.env.APP_PUBLIC_URL = "https://roots-lalt.onrender.com";
+  const request = {
+    protocol: "https",
+    get(header) {
+      if (header === "host") return "roots-lalt.onrender.com";
+      if (header === "x-forwarded-host") return "roots-8rak.vercel.app";
+      if (header === "x-forwarded-proto") return "https";
+      return "";
+    },
+  };
+  try {
+    assert.equal(publicBase(request), "https://roots-8rak.vercel.app/roots");
+    assert.equal(
+      googleCallbackUrl(request),
+      "https://roots-8rak.vercel.app/roots/api/auth/google/callback",
+    );
   } finally {
     if (previous === undefined) delete process.env.APP_PUBLIC_URL;
     else process.env.APP_PUBLIC_URL = previous;
