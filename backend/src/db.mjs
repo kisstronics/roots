@@ -52,12 +52,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS families_catalog_slug_idx
 
 let pool;
 
+function poolConfig(connectionString) {
+  const config = {
+    connectionString,
+    connectionTimeoutMillis: 5000,
+  };
+  // Hosted Postgres (Render and similar) refuses non-TLS connections.
+  // Local Postgres usually has TLS disabled, so leave those connections plain.
+  if (remoteDatabase(connectionString) && !connectionChoosesSsl(connectionString)) {
+    config.ssl = { rejectUnauthorized: false };
+  }
+  return config;
+}
+
+function remoteDatabase(connectionString) {
+  try {
+    const host = new URL(connectionString).hostname;
+    return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+  } catch {
+    return false;
+  }
+}
+
+function connectionChoosesSsl(connectionString) {
+  try {
+    const params = new URL(connectionString).searchParams;
+    return params.has("sslmode") || params.has("ssl");
+  } catch {
+    return false;
+  }
+}
+
 export function getPool() {
   if (!pool) {
-    pool = new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
-      connectionTimeoutMillis: 5000,
-    });
+    pool = new pg.Pool(poolConfig(process.env.DATABASE_URL));
     pool.on("error", (error) => {
       console.error("PostgreSQL client error:", error.message);
     });
@@ -101,15 +129,22 @@ export async function findUserById(id) {
 }
 
 export async function upsertGoogleUser({ sub, email, name, picture }) {
-  const { rows } = await getPool().query(
+  const inserted = await getPool().query(
     `INSERT INTO users (id, google_sub, email, name, picture)
      VALUES ($1, $2, $3, $4, $5)
-     ON CONFLICT (google_sub) DO UPDATE
-     SET email = EXCLUDED.email, name = EXCLUDED.name, picture = EXCLUDED.picture
+     ON CONFLICT (google_sub) DO NOTHING
      RETURNING *`,
     [randomUUID(), sub, email, name, picture],
   );
-  return rows[0];
+  if (inserted.rowCount) return { user: inserted.rows[0], created: true };
+  const updated = await getPool().query(
+    `UPDATE users
+     SET email = $2, name = $3, picture = $4
+     WHERE google_sub = $1
+     RETURNING *`,
+    [sub, email, name, picture],
+  );
+  return { user: updated.rows[0], created: false };
 }
 
 export async function listForUser(user) {
