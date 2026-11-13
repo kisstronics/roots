@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { appUrl } from "./paths";
+import { apiUrl } from "./paths";
 
 export interface AuthUser {
   id: string;
@@ -22,7 +22,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancel = false;
-    fetch(appUrl("/api/auth/me"))
+    fetch(apiUrl("/api/auth/me"), { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) return null;
         const data = (await response.json()) as { user?: AuthUser | null };
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function logout() {
-    await fetch(appUrl("/api/auth/logout"), { method: "POST" }).catch(() => undefined);
+    await fetch(apiUrl("/api/auth/logout"), { method: "POST", credentials: "include" }).catch(() => undefined);
     setUser(null);
   }
 

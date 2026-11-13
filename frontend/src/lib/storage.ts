@@ -1,5 +1,5 @@
 import type { Family, FamilySummary } from "../types";
-import { appUrl } from "./paths";
+import { apiUrl, appUrl } from "./paths";
 import { normalizeFamily } from "./people";
 
 export interface OwnedFamilyList {
@@ -117,7 +117,7 @@ export function isSafeSlug(slug: string): boolean {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(appUrl(path), { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers, credentials: "include" });
   const data = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
   if (!response.ok) {
     const error = new Error(data?.error || "The request failed.") as Error & { status?: number };

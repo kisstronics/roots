@@ -23,7 +23,9 @@ import {
 } from "./db.mjs";
 import {
   asyncRoute,
+  allowAppOrigin,
   clearCookie,
+  cookieFlags,
   HttpError,
   googleCallbackUrl,
   readCookie,
@@ -40,6 +42,14 @@ const OAUTH_SECONDS = 60 * 10;
 const SHARE_TOKEN = /^[A-Za-z0-9_-]{20,200}$/;
 
 export async function attachApi(app) {
+  app.use((req, res, next) => {
+    allowAppOrigin(req, res);
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
   app.locals.dbReady = false;
   try {
     await initDb();
@@ -90,6 +100,7 @@ function createRouter() {
     const state = randomBytes(16).toString("base64url");
     writeCookie(res, OAUTH_COOKIE, sign({ state, mode, exp: Date.now() + OAUTH_SECONDS * 1000 }), {
       maxAge: OAUTH_SECONDS,
+      ...cookieFlags(req),
     });
     const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     url.searchParams.set("client_id", google.clientId);
@@ -106,7 +117,7 @@ function createRouter() {
     asyncRoute(async (req, res) => {
       const payload = verify(readCookie(req, OAUTH_COOKIE));
       const mode = payload?.mode === "signup" ? "signup" : "login";
-      clearCookie(res, OAUTH_COOKIE);
+      clearCookie(res, OAUTH_COOKIE, cookieFlags(req));
       const fail = (code) => redirectApp(res, req, `/${mode}?error=${code}`);
       if (!payload?.state || !safeEqual(payload.state, req.query.state)) {
         fail("google");
@@ -145,6 +156,7 @@ function createRouter() {
       if (created) await notify(() => sendWelcomeEmail(user));
       writeCookie(res, SESSION_COOKIE, sign({ uid: user.id, exp: Date.now() + SESSION_SECONDS * 1000 }), {
         maxAge: SESSION_SECONDS,
+        ...cookieFlags(req),
       });
       redirectApp(res, req, "/admin");
     }),
@@ -158,8 +170,8 @@ function createRouter() {
     }),
   );
 
-  router.post("/auth/logout", (_req, res) => {
-    clearCookie(res, SESSION_COOKIE);
+  router.post("/auth/logout", (req, res) => {
+    clearCookie(res, SESSION_COOKIE, cookieFlags(req));
     send(res, 200, { ok: true });
   });
 

@@ -34,7 +34,7 @@ test("a proxied Vercel request returns to the Vercel app", () => {
     assert.equal(publicBase(request), "https://roots-8rak.vercel.app/roots");
     assert.equal(
       googleCallbackUrl(request),
-      "https://roots-8rak.vercel.app/roots/api/auth/google/callback",
+      "https://roots-lalt.onrender.com/api/auth/google/callback",
     );
   } finally {
     if (previous === undefined) delete process.env.APP_PUBLIC_URL;
