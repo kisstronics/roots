@@ -48,7 +48,11 @@ export function clearCookie(res, name) {
   writeCookie(res, name, "", { maxAge: 0 });
 }
 
+const DEFAULT_APP_HOSTS = ["roots-8rak.vercel.app"];
+
 export function publicBase(req) {
+  const forwarded = forwardedAppBase(req);
+  if (forwarded) return forwarded;
   const configured = (process.env.APP_PUBLIC_URL || "").replace(/\/$/, "");
   const host = req.get("host") || "";
   const live = host ? `${req.protocol}://${host}/roots` : "";
@@ -57,11 +61,49 @@ export function publicBase(req) {
   return live;
 }
 
+export function googleCallbackUrl(req) {
+  const forwarded = forwardedAppBase(req);
+  if (forwarded) return `${forwarded}/api/auth/google/callback`;
+  return configuredOrLive(req, process.env.GOOGLE_CALLBACK_URL, "/api/auth/google/callback");
+}
+
 export function configuredOrLive(req, envValue, suffix) {
   const configured = (envValue || "").trim();
   const base = publicBase(req);
   if (!configured || (isLocalUrl(configured) && !isLocalUrl(base))) return `${base}${suffix}`;
   return configured;
+}
+
+function forwardedAppBase(req) {
+  const raw = req.get("x-forwarded-host") || req.get("x-vercel-forwarded-host") || "";
+  const host = raw.split(",")[0].trim();
+  const hostname = hostnameOf(host);
+  if (!hostname || !allowedAppHosts().has(hostname)) return "";
+  const proto = (req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim();
+  return `${proto}://${host}/roots`;
+}
+
+function allowedAppHosts() {
+  const hosts = new Set(DEFAULT_APP_HOSTS);
+  for (const host of (process.env.APP_HOSTS || "").split(",")) {
+    const hostname = hostnameOf(host.trim());
+    if (hostname) hosts.add(hostname);
+  }
+  const configured = (process.env.APP_PUBLIC_URL || "").trim();
+  if (configured && !isLocalUrl(configured)) {
+    const hostname = hostnameOf(configured);
+    if (hostname) hosts.add(hostname);
+  }
+  return hosts;
+}
+
+function hostnameOf(value) {
+  if (!value) return "";
+  try {
+    return new URL(value.includes("://") ? value : `https://${value}`).hostname;
+  } catch {
+    return "";
+  }
 }
 
 function isLocalUrl(value) {

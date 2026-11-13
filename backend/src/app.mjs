@@ -25,8 +25,7 @@ import {
   asyncRoute,
   clearCookie,
   HttpError,
-  configuredOrLive,
-  publicBase,
+  googleCallbackUrl,
   readCookie,
   redirectApp,
   send,
@@ -292,10 +291,6 @@ function googleConfig() {
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim() ?? "";
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
-}
-
-function googleCallbackUrl(req) {
-  return configuredOrLive(req, process.env.GOOGLE_CALLBACK_URL, "/api/auth/google/callback");
 }
 
 async function exchangeGoogleCode(google, code, redirectUri) {
