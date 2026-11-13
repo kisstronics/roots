@@ -31,6 +31,7 @@ import {
   send,
   writeCookie,
 } from "./http.mjs";
+import { sendFamilyCreatedEmail, sendWelcomeEmail } from "./mail.mjs";
 import { OAUTH_COOKIE, SESSION_COOKIE, sign, verify } from "./session.mjs";
 import { isSafeSlug, slugify } from "./slug.mjs";
 
@@ -135,12 +136,13 @@ function createRouter() {
         fail("google");
         return;
       }
-      const user = await upsertGoogleUser({
+      const { user, created } = await upsertGoogleUser({
         sub: profile.sub,
         email,
         name: String(profile.name || email).slice(0, 120),
         picture: typeof profile.picture === "string" ? profile.picture : null,
       });
+      if (created) await notify(() => sendWelcomeEmail(user));
       writeCookie(res, SESSION_COOKIE, sign({ uid: user.id, exp: Date.now() + SESSION_SECONDS * 1000 }), {
         maxAge: SESSION_SECONDS,
       });
@@ -205,6 +207,7 @@ function createRouter() {
     const slug = slugify(name);
     if (!isSafeSlug(slug)) throw new HttpError(400, "Use a family name with letters or numbers.");
     const row = await createFamily(req.user.id, { slug, name });
+    await notify(() => sendFamilyCreatedEmail(req.user, row));
     send(res, 201, { family: mapFamily(row), shareToken: null });
   }));
 
@@ -328,6 +331,14 @@ function safeEqual(left, right) {
   const a = Buffer.from(left);
   const b = Buffer.from(right);
   return a.length === b.length && timingSafeEqual(a, b);
+}
+
+async function notify(send) {
+  try {
+    await send();
+  } catch (error) {
+    console.error("Email failed:", error.message);
+  }
 }
 
 function publicUser(user) {

@@ -81,20 +81,38 @@ code {
   padding: 4px 10px;
   font-size: 0.85rem;
 }
-.avatar {
-  width: 28px;
-  height: 28px;
+.user-photo {
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   object-fit: cover;
+  flex: none;
 }
 .share-url {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
 }
-.share-url input { width: min(360px, 70vw); font-size: 0.85rem; }
+.share-url input {
+  width: min(360px, 100%);
+  min-width: 0;
+  max-width: 100%;
+  font-size: 0.85rem;
+}
 .share-url .form-error, .share-url .hint { margin: 0; }
+.family-card .share-url {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: stretch;
+}
+.family-card .share-url input {
+  width: 100%;
+  text-overflow: ellipsis;
+}
+.family-card .share-url .button { justify-self: start; }
 
 .button, .rel-button {
   border: 1px solid var(--line);
@@ -140,10 +158,11 @@ input, select {
 .open-form input { width: min(320px, 100%); }
 .form-error { color: var(--danger); margin-top: 10px; }
 .family-section, .admin-home section { margin-top: 12px; }
-.family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; margin-top: 14px; }
+.family-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 14px; margin-top: 14px; }
 .family-card {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding: 16px;
   border-radius: 18px;
   background: var(--card);

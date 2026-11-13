@@ -8,7 +8,7 @@ const root = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.join(root, "dist");
 const familiesDir = path.join(root, "public", "families");
 const enquiriesFile = path.join(root, "data", "enquiries.json");
-const port = 8501;
+const port = 5173;
 const appBase = "/roots";
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
