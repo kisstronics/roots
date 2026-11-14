@@ -15,7 +15,7 @@ export function PersonCard({ person, x, y, selected, onSelect, onOpen }: PersonC
   const name = fullName(person);
   return (
     <article
-      className={["person-card", person.gender, selected ? "is-selected" : ""].filter(Boolean).join(" ")}
+      className={["person-card", person.gender, person.living ? "is-living" : "is-deceased", selected ? "is-selected" : ""].filter(Boolean).join(" ")}
       style={{ left: x, top: y, width: CARD_W, height: CARD_H }}
       data-testid="person-card"
       data-person-id={person.id}
@@ -26,13 +26,21 @@ export function PersonCard({ person, x, y, selected, onSelect, onOpen }: PersonC
         type="button"
         className="person-main"
         onClick={() => onSelect(person.id)}
-        onDoubleClick={() => onOpen(person.id)}
       >
-        {person.photo ? (
-          <img className="card-photo" src={person.photo} alt="" data-testid="person-photo" />
-        ) : (
-          <span className={`card-photo avatar ${person.gender}`}>{initials(person)}</span>
-        )}
+        <span
+          className="medallion"
+          onDoubleClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpen(person.id);
+          }}
+        >
+          {person.photo ? (
+            <img className="card-photo" src={person.photo} alt="" data-testid="person-photo" />
+          ) : (
+            <span className={`card-photo avatar ${person.gender}`}>{initials(person)}</span>
+          )}
+        </span>
         <span className="card-meta">
           <span className="person-name">{name}</span>
           <span className="person-years">{lifeYears(person)}</span>

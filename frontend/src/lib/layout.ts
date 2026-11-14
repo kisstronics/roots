@@ -3,8 +3,8 @@ import { byBirth, childrenOf, fullName, indexPeople, spousesOf } from "./people"
 import { buildWindow, type ChildUnit, type Household } from "./window";
 
 export const CARD_W = 236;
-export const CARD_H = 248;
-export const CARD_PHOTO_ASPECT = (CARD_W - 6) / ((CARD_H - 2) * 0.75);
+export const CARD_H = 214;
+export const CARD_PHOTO_ASPECT = 230 / 184.5;
 
 const PAD_X = 56;
 const PAD_Y = 72;
@@ -13,7 +13,7 @@ const UNIT_GAP = 32;
 const HOUSE_GAP = 78;
 const GEN_GAP = 136;
 const BUS_OFFSET = 68;
-const SPOUSE_DROP = 16;
+const SPOUSE_SAG = 36;
 
 export interface LayoutNode {
   id: string;
@@ -438,16 +438,16 @@ export function layoutFullTree(people: Person[]): LayoutResult | null {
       const x2 = right.x + CARD_W / 2;
       const y1 = left.y + CARD_H;
       const y2 = right.y + CARD_H;
-      const bar = Math.max(y1, y2) + SPOUSE_DROP;
-      edges.push({
+      pushSpouseEdge(
+        edges,
         id,
-        kind: "spouse",
-        title: `${personName(person.id)} and ${personName(spouseId)}, spouses`,
-        d: `M ${x1} ${y1} L ${x1} ${bar} L ${x2} ${bar} L ${x2} ${y2}`,
-        d2: `M ${x1} ${bar - 6} L ${x2} ${bar - 6}`,
-        childId: null,
-        matches: [{ a: person.id, b: spouseId }],
-      });
+        `${personName(person.id)} and ${personName(spouseId)}, spouses`,
+        [{ a: person.id, b: spouseId }],
+        x1,
+        y1,
+        x2,
+        y2,
+      );
     }
   }
 
@@ -699,20 +699,11 @@ function addSpouseLinks(
     if (!left || !right) continue;
     const x1 = left.x + CARD_W / 2;
     const x2 = right.x + CARD_W / 2;
-    const bottom = left.y + CARD_H;
-    const bar = bottom + SPOUSE_DROP;
+    const y1 = left.y + CARD_H;
+    const y2 = right.y + CARD_H;
     const [first, second] = [a, b].sort();
     const id = `spouse:${first}:${second}`;
-    if (edges.some((edge) => edge.id === id)) continue;
-    edges.push({
-      id,
-      kind: "spouse",
-      title: `${personName(a)} and ${personName(b)}, spouses`,
-      d: `M ${x1} ${bottom} L ${x1} ${bar} L ${x2} ${bar} L ${x2} ${bottom}`,
-      d2: `M ${x1} ${bar - 6} L ${x2} ${bar - 6}`,
-      childId: null,
-      matches: [{ a, b }],
-    });
+    pushSpouseEdge(edges, id, `${personName(a)} and ${personName(b)}, spouses`, [{ a, b }], x1, y1, x2, y2);
   }
 }
 
@@ -724,14 +715,64 @@ function coupleJunction(ids: string[], pos: Map<string, LayoutNode>): { x: numbe
   }
   const first = nodes[0];
   const last = nodes[nodes.length - 1];
+  const arc = spouseArc(first.x + CARD_W / 2, first.y + CARD_H, last.x + CARD_W / 2, last.y + CARD_H);
+  return { x: arc.knotX, y: arc.knotY };
+}
+
+function pushSpouseEdge(
+  edges: LayoutEdge[],
+  id: string,
+  title: string,
+  matches: LayoutMatch[],
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+) {
+  if (edges.some((edge) => edge.id === id)) return;
+  const arc = spouseArc(x1, y1, x2, y2);
+  edges.push({
+    id,
+    kind: "spouse",
+    title,
+    d: arc.d,
+    d2: arc.d2,
+    childId: null,
+    matches,
+  });
+}
+
+function spouseArc(x1: number, y1: number, x2: number, y2: number) {
+  const midX = (x1 + x2) / 2;
+  const controlY = Math.max(y1, y2) + SPOUSE_SAG;
+  const knotX = Math.round(midX);
+  const knotY = Math.round(0.25 * y1 + 0.5 * controlY + 0.25 * y2);
+  const radius = 3.4;
   return {
-    x: (first.x + CARD_W / 2 + last.x + CARD_W / 2) / 2,
-    y: first.y + CARD_H + SPOUSE_DROP,
+    d: `M ${Math.round(x1)} ${Math.round(y1)} Q ${Math.round(midX)} ${Math.round(controlY)} ${Math.round(x2)} ${Math.round(y2)}`,
+    d2: `M ${knotX - radius} ${knotY} a ${radius} ${radius} 0 1 1 ${radius * 2} 0 a ${radius} ${radius} 0 1 1 ${-radius * 2} 0`,
+    knotX,
+    knotY,
   };
 }
 
 function stem(fromX: number, fromY: number, toX: number, toY: number, busY: number): string {
-  const bus = Math.min(busY, toY - 24);
-  const mid = Math.max(fromY + 12, bus);
-  return `M ${Math.round(fromX)} ${Math.round(fromY)} L ${Math.round(fromX)} ${Math.round(mid)} L ${Math.round(toX)} ${Math.round(mid)} L ${Math.round(toX)} ${Math.round(toY)}`;
+  const x1 = Math.round(fromX);
+  const y1 = Math.round(fromY);
+  const x2 = Math.round(toX);
+  const y2 = Math.round(toY);
+  const bus = Math.min(busY, y2 - 24);
+  const branch = Math.round(Math.max(y1 + 12, bus));
+  if (Math.abs(x2 - x1) < 2) return `M ${x1} ${y1} L ${x2} ${y2}`;
+  const dir = x2 > x1 ? 1 : -1;
+  const radius = Math.min(16, Math.floor(Math.abs(x2 - x1) / 2), Math.floor(Math.abs(branch - y1) / 2), Math.floor((y2 - branch) / 2));
+  if (radius < 4) return `M ${x1} ${y1} L ${x1} ${branch} L ${x2} ${branch} L ${x2} ${y2}`;
+  return [
+    `M ${x1} ${y1}`,
+    `L ${x1} ${branch - radius}`,
+    `Q ${x1} ${branch} ${x1 + dir * radius} ${branch}`,
+    `L ${x2 - dir * radius} ${branch}`,
+    `Q ${x2} ${branch} ${x2} ${branch + radius}`,
+    `L ${x2} ${y2}`,
+  ].join(" ");
 }

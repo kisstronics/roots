@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { TreeWorkspace } from "../components/TreeWorkspace";
-import { downloadFamily, enqueueSave, ensureViewLink, loadOwnedFamily, shareUrl, type FamilyAccess } from "../lib/storage";
+import { FamilyAccessPanel } from "../components/FamilyShareDialog";
+import { deleteFamily, downloadFamily, enqueueSave, ensureViewLink, loadOwnedFamily, shareUrl, type FamilyAccess } from "../lib/storage";
 import type { Family } from "../types";
 
 export function AdminFamilyPage() {
@@ -12,9 +13,10 @@ export function AdminFamilyPage() {
   const [family, setFamily] = useState<Family | null>(null);
   const [access, setAccess] = useState<FamilyAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState("Edits are saved to your account.");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [viewToken, setViewToken] = useState<string | null>(null);
-  const [viewCopied, setViewCopied] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancel = false;
@@ -29,7 +31,6 @@ export function AdminFamilyPage() {
           setFamily(loaded.family);
           setAccess(loaded);
           setViewToken(loaded.viewToken);
-          setStatus(loaded.role === "viewer" ? "You can view this tree." : "Edits are saved to your account.");
         }
       })
       .catch((reason) => {
@@ -68,69 +69,140 @@ export function AdminFamilyPage() {
                 ? undefined
                 : (next) => {
                     setFamily(next);
-                    setStatus("Saving…");
-                    void enqueueSave(next).then(
-                      () => setStatus("Saved."),
-                      (reason) => setStatus(reason instanceof Error ? reason.message : "The family could not be saved."),
-                    );
+                    setSaveError(null);
+                    void enqueueSave(next).catch((reason) => {
+                      setSaveError(reason instanceof Error ? reason.message : "The family could not be saved.");
+                    });
                   }
             }
             toolbarExtra={
-              <div className="save-cluster">
-                <span className="status-line">{status}</span>
-                <ViewLink
-                  token={viewToken}
-                  copied={viewCopied}
-                  onCopy={() => {
-                    if (!viewToken) return;
-                    void navigator.clipboard.writeText(shareUrl(viewToken)).then(() => {
-                      setViewCopied(true);
-                      window.setTimeout(() => setViewCopied(false), 2000);
-                    });
-                  }}
-                  onGenerate={() => {
-                    void ensureViewLink(family.slug).then(setViewToken, (reason) => {
-                      setStatus(reason instanceof Error ? reason.message : "The view link could not be created.");
-                    });
-                  }}
-                />
+              <>
                 <button type="button" className="button ghost" onClick={() => downloadFamily(family)}>
                   Download JSON
                 </button>
-              </div>
+                {access.role === "owner" && (
+                  <button
+                    type="button"
+                    className="button danger"
+                    onClick={() => {
+                      setDeleteError(null);
+                      setPendingDelete(true);
+                    }}
+                  >
+                    Delete tree
+                  </button>
+                )}
+              </>
+            }
+            accessView={
+              <FamilyAccessView
+                access={access}
+                viewToken={viewToken}
+                saveError={saveError}
+                onViewToken={setViewToken}
+                onChange={(next) => setAccess({ ...access, ...next })}
+              />
             }
           />
       )}
       <SiteFooter />
+      {pendingDelete && family && (
+        <div className="backdrop" onMouseDown={() => setPendingDelete(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-labelledby="delete-tree-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="eyebrow">Delete tree</p>
+            <h2 id="delete-tree-title">Delete {family.name}?</h2>
+            <p className="hint">The tree leaves your list and its view link stops opening.</p>
+            {deleteError && <p className="form-error">{deleteError}</p>}
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setPendingDelete(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => {
+                  void deleteFamily(family.slug)
+                    .then(() => navigate("/admin"))
+                    .catch((reason) => {
+                      setDeleteError(reason instanceof Error ? reason.message : "The tree could not be deleted.");
+                    });
+                }}
+              >
+                Delete tree
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
 
-function ViewLink({
-  token,
-  copied,
-  onCopy,
-  onGenerate,
+function FamilyAccessView({
+  access,
+  viewToken,
+  saveError,
+  onViewToken,
+  onChange,
 }: {
-  token: string | null;
-  copied: boolean;
-  onCopy: () => void;
-  onGenerate: () => void;
+  access: FamilyAccess;
+  viewToken: string | null;
+  saveError: string | null;
+  onViewToken: (token: string) => void;
+  onChange: (next: { members: FamilyAccess["members"]; links: FamilyAccess["links"]; accessLog: FamilyAccess["accessLog"] }) => void;
 }) {
-  if (!token) {
-    return (
-      <button type="button" className="button ghost" onClick={onGenerate}>
-        View link
-      </button>
-    );
-  }
-  const url = shareUrl(token);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const urls = [
+    ...(viewToken ? [{ id: "view", label: "View link", url: shareUrl(viewToken) }] : []),
+    ...access.links.map((link) => ({
+      id: link.id,
+      label: link.expiresAt ? `Expires ${new Date(link.expiresAt).toLocaleDateString()}` : "Does not expire",
+      url: shareUrl(link.token),
+    })),
+  ];
+
   return (
-    <span className="view-link">
-      <input readOnly value={url} aria-label="View link" onFocus={(event) => event.currentTarget.select()} />
-      <button type="button" className="button ghost" onClick={onCopy}>
-        {copied ? "Copied" : "Copy"}
-      </button>
-    </span>
+    <div className="family-access">
+      <FamilyAccessPanel
+        slug={access.family.slug}
+        role={access.role}
+        members={access.members}
+        links={access.links}
+        edits={access.edits}
+        accessLog={access.accessLog}
+        onChange={onChange}
+      />
+      <section className="generated-urls" aria-label="Generated links">
+        <h2>Links</h2>
+        {urls.length === 0 && (
+          <button
+            type="button"
+            className="button ghost"
+            onClick={() => {
+              void ensureViewLink(access.family.slug).then(onViewToken, (reason) => {
+                setLinkError(reason instanceof Error ? reason.message : "The view link could not be created.");
+              });
+            }}
+          >
+            Generate view link
+          </button>
+        )}
+        <ul>
+          {urls.map((item) => (
+            <li key={item.id}>
+              <span>{item.label}</span>
+              <a href={item.url}>{item.url}</a>
+            </li>
+          ))}
+        </ul>
+        {linkError && <p className="form-error">{linkError}</p>}
+        {saveError && <p className="form-error">{saveError}</p>}
+      </section>
+    </div>
   );
 }

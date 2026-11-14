@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { Person } from "../types";
+import { ageOf } from "../lib/stats";
 import { childrenOf, formatDate, fullName, initials, lifeYears, parentsOf, siblingsOf, spousesOf } from "../lib/people";
 
 interface PersonDetailsDialogProps {
@@ -22,6 +23,7 @@ export function PersonDetailsDialog({ person, people, onClose, onOpen }: PersonD
   const spouses = spousesOf(person, people);
   const children = childrenOf(person, people);
   const siblings = siblingsOf(person, people);
+  const age = ageOf(person);
 
   return (
     <div className="backdrop" onMouseDown={onClose}>
@@ -32,39 +34,49 @@ export function PersonDetailsDialog({ person, people, onClose, onOpen }: PersonD
         aria-labelledby="person-details-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="detail-body">
-          <p className="eyebrow">
-            {person.gender === "male" ? "Male" : "Female"}
-            <span aria-hidden="true"> · </span>
-            {person.living ? "Living" : "Deceased"}
-          </p>
-          {person.photo ? (
-            <img className="portrait" src={person.photo} alt="" />
-          ) : (
-            <span className={`avatar detail-avatar ${person.gender}`}>{initials(person)}</span>
-          )}
-          <h2 id="person-details-title">{fullName(person)}</h2>
-          <p className="person-years detail-years">{lifeYears(person)}</p>
-          <dl className="detail-grid">
-            <dt>Birthday</dt>
-            <dd>{shownDate(person.birthday, person.birthYear)}</dd>
-            {!person.living && (
-              <>
-                <dt>Death day</dt>
-                <dd>{shownDate(person.deathday, person.deathYear)}</dd>
-              </>
-            )}
-            <dt>Birth location</dt>
-            <dd>{shownText(person.birthLocation)}</dd>
-            <dt>Current location</dt>
-            <dd>{shownText(person.currentLocation)}</dd>
-            <dt>Notes</dt>
-            <dd className="detail-notes">{shownText(person.notes)}</dd>
-          </dl>
-          <RelationList label="Parents" people={parents} onOpen={onOpen} />
-          <RelationList label="Spouses" people={spouses} onOpen={onOpen} />
-          <RelationList label="Children" people={children} onOpen={onOpen} />
-          <RelationList label="Siblings" people={siblings} onOpen={onOpen} />
+        <div className="detail-columns">
+          <div className="detail-identity">
+            <p className="eyebrow">
+              {person.gender === "male" ? "Male" : "Female"}
+              <span aria-hidden="true"> · </span>
+              {person.living ? "Living" : "Deceased"}
+            </p>
+            <span className={["profile-portrait", person.gender, person.living ? "is-living" : "is-deceased"].join(" ")}>
+              {person.photo ? (
+                <img src={person.photo} alt="" />
+              ) : (
+                <span className={`avatar ${person.gender}`}>{initials(person)}</span>
+              )}
+            </span>
+            <h2 id="person-details-title">{fullName(person)}</h2>
+            <p className="person-years detail-years">{lifeYears(person)}</p>
+          </div>
+          <div className="detail-facts">
+            <dl className="detail-grid">
+              <dt>Age</dt>
+              <dd>{age == null || age < 0 ? "Not recorded" : `${age} years`}</dd>
+              <dt>Birthday</dt>
+              <dd>{shownDate(person.birthday, person.birthYear)}</dd>
+              {!person.living && (
+                <>
+                  <dt>Death day</dt>
+                  <dd>{shownDate(person.deathday, person.deathYear)}</dd>
+                </>
+              )}
+              <dt>Birth location</dt>
+              <dd>{shownText(person.birthLocation)}</dd>
+              <dt>Current location</dt>
+              <dd>{shownText(person.currentLocation)}</dd>
+              <dt>Notes</dt>
+              <dd className="detail-notes">{shownText(person.notes)}</dd>
+            </dl>
+            <div className="detail-relations-grid">
+              <RelationList label="Parents" people={parents} onOpen={onOpen} />
+              <RelationList label="Spouses" people={spouses} onOpen={onOpen} />
+              <RelationList label="Children" people={children} onOpen={onOpen} />
+              <RelationList label="Siblings" people={siblings} onOpen={onOpen} />
+            </div>
+          </div>
         </div>
         <div className="inline-actions">
           <button type="button" className="button" onClick={onClose}>

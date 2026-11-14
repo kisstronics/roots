@@ -19,7 +19,6 @@ export function SiteHeader({ variant = "public" }: { variant?: "public" | "admin
         {ready && user && (
           <>
             {variant === "public" && <Link to="/admin">Your families</Link>}
-            <Link to="/admin/access">Access</Link>
             {user.picture && <img className="user-photo" src={user.picture} alt="" referrerPolicy="no-referrer" />}
             {label && <span className="who">{label}</span>}
             <button

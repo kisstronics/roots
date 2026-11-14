@@ -30,7 +30,6 @@ export function FamilyAccessPanel({
   const [expiry, setExpiry] = useState<"30" | "60" | "never">("30");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
   const canManage = role === "owner";
 
   async function run(action: () => Promise<void>) {
@@ -173,18 +172,6 @@ export function FamilyAccessPanel({
                   <small>{link.expiresAt ? `Expires ${formatWhen(link.expiresAt)}` : "Does not expire"}</small>
                 </span>
                 <span className="inline-actions">
-                  <button
-                    type="button"
-                    className="button ghost"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(url).then(() => {
-                        setCopied(link.id);
-                        window.setTimeout(() => setCopied(null), 2000);
-                      });
-                    }}
-                  >
-                    {copied === link.id ? "Copied" : "Copy"}
-                  </button>
                   <button
                     type="button"
                     className="button ghost"
