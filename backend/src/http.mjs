@@ -1,7 +1,8 @@
 export class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, details = null) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -13,7 +14,7 @@ export function asyncRoute(fn) {
   return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch((error) => {
       if (error instanceof HttpError) {
-        send(res, error.status, { error: error.message });
+        send(res, error.status, { error: error.message, ...(error.details || {}) });
         return;
       }
       console.error(error);

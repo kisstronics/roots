@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { HttpError } from "./http.mjs";
-import { asPeople, getPool } from "./db.mjs";
+import { getPool } from "./db.mjs";
 
 const DAY = 24 * 60 * 60 * 1000;
 const EDIT_WINDOW = 2 * 60 * 1000;
@@ -224,17 +224,14 @@ export async function listEdits(familyId) {
   }));
 }
 
-export async function recordEdit(user, before, after) {
-  const sameName = before.name === after.name;
-  const samePeople = JSON.stringify(asPeople(before.people)) === JSON.stringify(asPeople(after.people));
-  if (sameName && samePeople) return false;
+export async function recordEdit(user, familyId) {
   const recent = await getPool().query(
     `SELECT id, user_id, created_at
      FROM family_edits
      WHERE family_id = $1
      ORDER BY created_at DESC
      LIMIT 1`,
-    [after.id],
+    [familyId],
   );
   const last = recent.rows[0];
   if (last && last.user_id === user.id && Date.now() - new Date(last.created_at).getTime() < EDIT_WINDOW) {
@@ -244,7 +241,7 @@ export async function recordEdit(user, before, after) {
   await getPool().query(
     `INSERT INTO family_edits (id, family_id, user_id, user_name, user_email)
      VALUES ($1, $2, $3, $4, $5)`,
-    [randomUUID(), after.id, user.id, user.name || "", user.email || ""],
+    [randomUUID(), familyId, user.id, user.name || "", user.email || ""],
   );
   return true;
 }

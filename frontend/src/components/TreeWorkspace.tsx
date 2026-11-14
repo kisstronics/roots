@@ -27,9 +27,10 @@ interface TreeWorkspaceProps {
   onChange?: (family: Family) => void;
   toolbarExtra?: ReactNode;
   accessView?: ReactNode;
+  saveError?: string | null;
 }
 
-export function TreeWorkspace({ family, mode, onChange, toolbarExtra, accessView }: TreeWorkspaceProps) {
+export function TreeWorkspace({ family, mode, onChange, toolbarExtra, accessView, saveError }: TreeWorkspaceProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
   const [revealNonce, setRevealNonce] = useState(0);
@@ -113,7 +114,7 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra, accessView
     try {
       if (dialog === "root") {
         const person = createPerson(input);
-        onChange({ ...family, people: [...family.people, person], updatedAt: new Date().toISOString() });
+        onChange({ ...family, people: [...family.people, person] });
         setDialog(null);
         setSelectedId(person.id);
         setToast(`Added ${fullName(person)}.`);
@@ -178,6 +179,7 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra, accessView
             <span>{family.people.filter((person) => person.living).length} living</span>
           </p>
         </div>
+        {saveError && <p className="form-error">{saveError}</p>}
         <div className="toolbar-tools">
           {tab === "tree" && <div className="search">
             <label className="sr-only" htmlFor="person-search">

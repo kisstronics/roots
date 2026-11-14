@@ -1,4 +1,4 @@
-import type { AccessEvent, Family, FamilyEdit, FamilyMember, FamilyRole, FamilySummary, ShareLink } from "../types";
+import type { AccessEvent, Family, FamilyEdit, FamilyMember, FamilyRole, FamilySummary, Person, ShareLink } from "../types";
 import { apiUrl, appUrl } from "./paths";
 import { normalizeFamily } from "./people";
 
@@ -80,18 +80,25 @@ export async function createFamily(name: string): Promise<Family> {
   return normalizeFamily(data.family);
 }
 
-export async function saveFamily(family: Family): Promise<void> {
-  const normalized = normalizeFamily(family);
-  await request(`/api/families/${normalized.slug}`, {
-    method: "PUT",
-    body: JSON.stringify(normalized),
-  });
-}
-
+const baselines = new Map<string, Family>();
+const revisions = new Map<string, number>();
 let saveQueue: Promise<unknown> = Promise.resolve();
 
-export function enqueueSave(family: Family): Promise<void> {
-  const run = saveQueue.then(() => saveFamily(family));
+export function rememberFamily(family: Family): Family {
+  const normalized = normalizeFamily(family);
+  baselines.set(normalized.slug, normalized);
+  revisions.set(normalized.slug, (revisions.get(normalized.slug) ?? 0) + 1);
+  return normalized;
+}
+
+export async function saveFamily(family: Family): Promise<Family> {
+  return enqueueSave(family);
+}
+
+export function enqueueSave(family: Family): Promise<Family> {
+  const slug = family.slug.trim().toLocaleLowerCase("en-US");
+  const ticket = revisions.get(slug) ?? 0;
+  const run = saveQueue.then(() => applySave(family, ticket));
   saveQueue = run.then(
     () => undefined,
     () => undefined,
@@ -195,14 +202,144 @@ export function isSafeSlug(slug: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug !== "index";
 }
 
+type SaveError = Error & { status?: number; family?: Family; stale?: boolean };
+
+async function applySave(family: Family, ticket: number): Promise<Family> {
+  const normalized = normalizeFamily(family);
+  const revision = revisions.get(normalized.slug) ?? 0;
+  const base = baselines.get(normalized.slug);
+  if (!base) throw new Error("Reload this tree before saving.");
+  if (ticket !== revision) {
+    const error = new Error("Someone else updated this tree. Your change was not saved, and the latest tree is shown.") as SaveError;
+    error.status = 409;
+    error.stale = true;
+    error.family = base;
+    throw error;
+  }
+
+  const plan = planSave(base, normalized);
+  try {
+    for (const person of plan.profiles) {
+      await request(`/api/families/${normalized.slug}/people/${encodeURIComponent(person.id)}`, {
+        method: "PUT",
+        body: JSON.stringify(profileOf(person)),
+      });
+    }
+    let updatedAt = base.updatedAt;
+    if (plan.structureChanged) {
+      const data = await request<{ family: Family }>(`/api/families/${normalized.slug}/structure`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: normalized.name,
+          baseUpdatedAt: base.updatedAt,
+          structure: plan.structure,
+          people: plan.created.map((person) => ({ id: person.id, ...profileOf(person) })),
+        }),
+      });
+      updatedAt = normalizeFamily(data.family).updatedAt;
+    }
+    const saved = normalizeFamily({ ...normalized, updatedAt });
+    baselines.set(saved.slug, saved);
+    return saved;
+  } catch (error) {
+    const saveError = error as SaveError;
+    if (saveError.status === 409 && saveError.family) {
+      saveError.family = rememberFamily(saveError.family);
+    } else if (saveError.status === 404) {
+      const loaded = await loadOwnedFamily(normalized.slug).catch(() => null);
+      if (loaded) {
+        saveError.family = rememberFamily(loaded.family);
+        saveError.message = "This tree changed. Your last change was not saved, and the latest tree is shown.";
+      }
+    }
+    throw error;
+  }
+}
+
+function planSave(base: Family, next: Family) {
+  const previous = new Map(base.people.map((person) => [person.id, person]));
+  const upcoming = new Map(next.people.map((person) => [person.id, person]));
+  const profiles = next.people.filter((person) => {
+    const before = previous.get(person.id);
+    return before ? !sameProfile(before, person) : false;
+  });
+  const created = next.people.filter((person) => !previous.has(person.id));
+  const structureChanged =
+    base.name !== next.name ||
+    base.people.length !== next.people.length ||
+    next.people.some((person) => {
+      const before = previous.get(person.id);
+      return !before || !sameLinks(before, person);
+    }) ||
+    base.people.some((person) => !upcoming.has(person.id));
+  return {
+    profiles,
+    created,
+    structureChanged,
+    structure: next.people.map(linksOf),
+  };
+}
+
+function sameProfile(left: Person, right: Person): boolean {
+  return (
+    left.firstName === right.firstName &&
+    left.lastName === right.lastName &&
+    left.gender === right.gender &&
+    left.living === right.living &&
+    left.birthYear === right.birthYear &&
+    left.deathYear === right.deathYear &&
+    left.birthday === right.birthday &&
+    left.deathday === right.deathday &&
+    left.birthLocation === right.birthLocation &&
+    left.currentLocation === right.currentLocation &&
+    left.notes === right.notes &&
+    left.photo === right.photo
+  );
+}
+
+function sameLinks(left: Person, right: Person): boolean {
+  return sameList(left.parentIds, right.parentIds) && sameList(left.spouseIds, right.spouseIds) && sameList(left.siblingIds, right.siblingIds);
+}
+
+function sameList(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+function profileOf(person: Person) {
+  return {
+    firstName: person.firstName,
+    lastName: person.lastName,
+    gender: person.gender,
+    living: person.living,
+    birthYear: person.birthYear,
+    deathYear: person.deathYear,
+    birthday: person.birthday,
+    deathday: person.deathday,
+    birthLocation: person.birthLocation,
+    currentLocation: person.currentLocation,
+    notes: person.notes,
+    photo: person.photo,
+  };
+}
+
+function linksOf(person: Person) {
+  return {
+    id: person.id,
+    parentIds: person.parentIds,
+    spouseIds: person.spouseIds,
+    siblingIds: person.siblingIds,
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(apiUrl(path), { ...init, headers, credentials: "include" });
-  const data = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
+  const data = (await response.json().catch(() => null)) as (T & { error?: string; family?: Family }) | null;
   if (!response.ok) {
-    const error = new Error(data?.error || "The request failed.") as Error & { status?: number };
+    const error = new Error(data?.error || "The request failed.") as SaveError;
     error.status = response.status;
+    if (data?.family) error.family = data.family;
     throw error;
   }
   return data as T;

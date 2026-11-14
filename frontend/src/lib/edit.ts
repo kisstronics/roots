@@ -114,7 +114,7 @@ export function emptyFamily(name: string, slug: string): Family {
 }
 
 function stamp(family: Family, people: Person[]): Family {
-  return { ...family, people, updatedAt: new Date().toISOString() };
+  return { ...family, people };
 }
 
 function clonePeople(people: Person[]): Person[] {
