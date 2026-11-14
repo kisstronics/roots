@@ -3,6 +3,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { SiteFooter } from "./components/SiteFooter";
 import { SiteHeader } from "./components/SiteHeader";
 import { useAuth } from "./lib/auth";
+import { AdminAccessPage } from "./pages/AdminAccessPage";
 import { AdminFamilyPage } from "./pages/AdminFamilyPage";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { ContactPage } from "./pages/ContactPage";
@@ -29,6 +30,22 @@ export function App() {
         element={
           <RequireUser>
             <AdminHomePage />
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/admin/access"
+        element={
+          <RequireUser>
+            <AdminAccessPage />
+          </RequireUser>
+        }
+      />
+      <Route
+        path="/admin/access/:familySlug"
+        element={
+          <RequireUser>
+            <AdminAccessPage />
           </RequireUser>
         }
       />

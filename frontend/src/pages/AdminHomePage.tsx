@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PublicLinkControls } from "../components/PublicLinkControls";
 import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { slugify } from "../lib/people";
@@ -15,6 +14,7 @@ export function AdminHomePage() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<FamilySummary | null>(null);
 
   async function refresh() {
     const data = await loadOwnedIndex();
@@ -40,8 +40,7 @@ export function AdminHomePage() {
           <p className="eyebrow">New family</p>
           <h1>Create a family</h1>
           <p className="hint">
-            You have {familyCount} of {maxFamilies} families. Generate a link when you want someone to view a tree
-            without logging in.
+            You have {familyCount} of {maxFamilies} families. Share a tree with another account, or make your own link.
           </p>
           <form
             className="open-form"
@@ -87,29 +86,25 @@ export function AdminHomePage() {
           {families.length === 0 && <p className="hint">No families yet.</p>}
           <div className="family-grid">
             {families.map((family) => (
-              <article key={`${family.publicTree ? "public" : "own"}-${family.slug}`} className="family-card static">
-                <span className="eyebrow">{family.publicTree ? "Public tree" : "Private until shared"}</span>
+              <article key={`${family.role ?? "own"}-${family.slug}`} className="family-card static">
+                <span className="eyebrow">{roleLabel(family.role)}</span>
                 <strong>{family.name}</strong>
                 <span>
                   {family.people} {family.people === 1 ? "person" : "people"}
                   {family.generations > 0 && ` · ${family.generations} generations`}
                 </span>
-                <PublicLinkControls slug={family.slug} token={family.shareToken ?? null} />
                 <div className="inline-actions">
                   <Link className="button primary" to={`/admin/family/${family.slug}`}>
-                    Edit tree
+                    {family.role === "viewer" ? "View tree" : "Edit tree"}
                   </Link>
-                  <button
-                    type="button"
-                    className="button ghost"
-                    onClick={async () => {
-                      if (!window.confirm(`Delete the ${family.name} family?`)) return;
-                      await deleteFamily(family.slug);
-                      await refresh();
-                    }}
-                  >
-                    Delete
-                  </button>
+                  <Link className="button ghost" to={`/admin/access/${family.slug}`}>
+                    Access
+                  </Link>
+                  {family.role === "owner" && (
+                    <button type="button" className="button ghost" onClick={() => setPendingDelete(family)}>
+                      Delete
+                    </button>
+                  )}
                 </div>
               </article>
             ))}
@@ -117,6 +112,45 @@ export function AdminHomePage() {
         </section>
       </main>
       <SiteFooter />
+      {pendingDelete && (
+        <div className="backdrop" onMouseDown={() => setPendingDelete(null)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-labelledby="delete-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <p className="eyebrow">Delete family</p>
+            <h2 id="delete-title">Delete {pendingDelete.name}?</h2>
+            <p className="hint">
+              The tree leaves your list and its view link stops opening. The record is kept.
+            </p>
+            <div className="modal-actions">
+              <button type="button" className="button ghost" onClick={() => setPendingDelete(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={async () => {
+                  const slug = pendingDelete.slug;
+                  setPendingDelete(null);
+                  await deleteFamily(slug);
+                  await refresh();
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
+}
+
+function roleLabel(role: FamilySummary["role"]) {
+  if (role === "editor") return "Editor";
+  if (role === "viewer") return "Viewer";
+  return "Owner";
 }

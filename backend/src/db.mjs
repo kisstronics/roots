@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import "./env.mjs";
 import { isSiteAdmin } from "./admin.mjs";
+import { loadAppSettings } from "./settings.mjs";
 import { HttpError } from "./http.mjs";
 import { isSafeSlug } from "./slug.mjs";
 
@@ -48,6 +49,44 @@ CREATE UNIQUE INDEX IF NOT EXISTS families_owner_slug_idx
 CREATE UNIQUE INDEX IF NOT EXISTS families_catalog_slug_idx
   ON families (slug)
   WHERE is_catalog;
+
+CREATE TABLE IF NOT EXISTS family_members (
+  family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (family_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS share_links (
+  id UUID PRIMARY KEY,
+  family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  token TEXT UNIQUE NOT NULL,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS share_links_owner_idx ON share_links (created_by, family_id);
+
+CREATE TABLE IF NOT EXISTS family_edits (
+  id UUID PRIMARY KEY,
+  family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  user_id UUID REFERENCES users (id) ON DELETE SET NULL,
+  user_name TEXT NOT NULL DEFAULT '',
+  user_email TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS family_edits_family_idx ON family_edits (family_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS family_invites (
+  family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('editor', 'viewer')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (family_id, email)
+);
 `;
 
 let pool;
@@ -98,7 +137,33 @@ export async function initDb() {
   await db.query("SELECT 1");
   await db.query("CREATE EXTENSION IF NOT EXISTS pgcrypto").catch(() => undefined);
   await db.query(SCHEMA);
+  await db.query(`
+    ALTER TABLE families ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+    ALTER TABLE family_members ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users (id) ON DELETE SET NULL;
+    ALTER TABLE family_members ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users (id) ON DELETE SET NULL;
+    ALTER TABLE family_members ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+    ALTER TABLE family_invites ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users (id) ON DELETE SET NULL;
+    ALTER TABLE family_invites ADD COLUMN IF NOT EXISTS updated_by UUID REFERENCES users (id) ON DELETE SET NULL;
+    ALTER TABLE family_invites ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+    CREATE TABLE IF NOT EXISTS access_events (
+      id UUID PRIMARY KEY,
+      family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+      actor_id UUID REFERENCES users (id) ON DELETE SET NULL,
+      actor_name TEXT NOT NULL DEFAULT '',
+      actor_email TEXT NOT NULL DEFAULT '',
+      action TEXT NOT NULL,
+      target_email TEXT NOT NULL DEFAULT '',
+      role TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS access_events_family_idx ON access_events (family_id, created_at DESC);
+    DROP INDEX IF EXISTS families_owner_slug_idx;
+    CREATE UNIQUE INDEX IF NOT EXISTS families_owner_slug_active_idx
+      ON families (owner_id, slug)
+      WHERE owner_id IS NOT NULL AND deleted_at IS NULL;
+  `);
   await seedCatalog();
+  await loadAppSettings(db);
 }
 
 export async function closeDb() {
@@ -117,7 +182,7 @@ export async function maxFamilies(client = getPool()) {
 
 export async function countOwned(userId, client = getPool()) {
   const { rows } = await client.query(
-    "SELECT count(*)::int AS count FROM families WHERE owner_id = $1 AND is_catalog = false",
+    "SELECT count(*)::int AS count FROM families WHERE owner_id = $1 AND is_catalog = false AND deleted_at IS NULL",
     [userId],
   );
   return rows[0]?.count ?? 0;
@@ -150,24 +215,57 @@ export async function upsertGoogleUser({ sub, email, name, picture }) {
 export async function listForUser(user) {
   const admin = isSiteAdmin(user);
   const { rows } = await getPool().query(
-    `SELECT * FROM families
-     WHERE owner_id = $1 OR ($2 = true AND is_catalog)
-     ORDER BY name ASC, slug ASC`,
+    `SELECT f.*,
+       CASE
+         WHEN f.owner_id = $1 THEN 'owner'
+         WHEN m.role IS NOT NULL THEN m.role
+         WHEN $2 = true THEN 'viewer'
+         ELSE m.role
+       END AS access_role
+     FROM families f
+     LEFT JOIN family_members m ON m.family_id = f.id AND m.user_id = $1
+     WHERE f.deleted_at IS NULL
+       AND (
+         f.owner_id = $1
+         OR m.user_id IS NOT NULL
+         OR ($2 = true AND f.is_catalog = false)
+       )
+     ORDER BY f.name ASC, f.slug ASC`,
     [user.id, admin],
   );
   return rows;
 }
 
-export async function getEditable(user, slug) {
+export async function getReadable(user, slug) {
   const admin = isSiteAdmin(user);
   const { rows } = await getPool().query(
-    `SELECT * FROM families
-     WHERE slug = $1 AND (owner_id = $2 OR ($3 = true AND is_catalog))
-     ORDER BY is_catalog ASC
+    `SELECT f.*,
+       CASE
+         WHEN f.owner_id = $2 THEN 'owner'
+         WHEN m.role IS NOT NULL THEN m.role
+         WHEN $3 = true THEN 'viewer'
+         ELSE m.role
+       END AS access_role
+     FROM families f
+     LEFT JOIN family_members m ON m.family_id = f.id AND m.user_id = $2
+     WHERE f.slug = $1
+       AND f.deleted_at IS NULL
+       AND (
+         f.owner_id = $2
+         OR m.user_id IS NOT NULL
+         OR ($3 = true AND f.is_catalog = false)
+       )
+     ORDER BY (f.owner_id = $2) DESC
      LIMIT 1`,
     [slug, user.id, admin],
   );
   return rows[0] ?? null;
+}
+
+export async function getEditable(user, slug) {
+  const row = await getReadable(user, slug);
+  if (!row || row.access_role === "viewer") return null;
+  return row;
 }
 
 export async function createFamily(userId, { slug, name }) {
@@ -222,38 +320,74 @@ export async function updateFamily(user, slug, { name, people }) {
 }
 
 export async function deleteFamily(user, slug) {
-  const existing = await getEditable(user, slug);
+  const existing = await getReadable(user, slug);
   if (!existing) throw new HttpError(404, "That family was not found.");
-  await getPool().query("DELETE FROM families WHERE id = $1", [existing.id]);
+  if (existing.access_role !== "owner") throw new HttpError(403, "Only the owner can delete this family.");
+  await getPool().query("UPDATE families SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL", [
+    existing.id,
+  ]);
+}
+
+export async function ensureViewToken(user, slug) {
+  const existing = await getReadable(user, slug);
+  if (!existing) throw new HttpError(404, "That family was not found.");
+  if (existing.share_token) return { token: existing.share_token, created: false };
+  const token = randomToken();
+  const saved = await getPool().query(
+    `UPDATE families
+     SET share_token = $1
+     WHERE id = $2 AND share_token IS NULL AND deleted_at IS NULL
+     RETURNING share_token`,
+    [token, existing.id],
+  );
+  if (saved.rowCount) return { token: saved.rows[0].share_token, created: true };
+  const again = await getPool().query("SELECT share_token FROM families WHERE id = $1", [existing.id]);
+  if (!again.rows[0]?.share_token) throw new HttpError(500, "The view link could not be created.");
+  return { token: again.rows[0].share_token, created: false };
 }
 
 export async function ensureShareToken(user, slug) {
-  const existing = await getEditable(user, slug);
+  const existing = await getReadable(user, slug);
   if (!existing) throw new HttpError(404, "That family was not found.");
-  if (existing.share_token) return existing.share_token;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const token = randomToken();
-    try {
-      const { rows, rowCount } = await getPool().query(
-        `UPDATE families
-         SET share_token = $1
-         WHERE id = $2 AND share_token IS NULL
-         RETURNING share_token`,
-        [token, existing.id],
-      );
-      if (rowCount) return rows[0].share_token;
-      const current = await getEditable(user, slug);
-      if (current?.share_token) return current.share_token;
-    } catch (error) {
-      if (error.code !== "23505") throw error;
-    }
+  const current = await getPool().query(
+    `SELECT token FROM share_links
+     WHERE family_id = $1 AND created_by = $2 AND expires_at IS NULL
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [existing.id, user.id],
+  );
+  if (current.rowCount) return current.rows[0].token;
+  const token = randomToken();
+  await getPool().query(
+    `INSERT INTO share_links (id, family_id, created_by, token, expires_at)
+     VALUES ($1, $2, $3, $4, NULL)`,
+    [randomUUID(), existing.id, user.id, token],
+  );
+  return token;
+}
+
+export async function lookupShare(token) {
+  const linked = await getPool().query(
+    `SELECT f.*, s.expires_at
+     FROM share_links s
+     JOIN families f ON f.id = s.family_id
+     WHERE s.token = $1 AND f.deleted_at IS NULL`,
+    [token],
+  );
+  if (linked.rowCount) {
+    const row = linked.rows[0];
+    if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) return { expired: true };
+    return { row };
   }
-  throw new HttpError(500, "Could not generate a link.");
+  const legacy = await getPool().query("SELECT * FROM families WHERE share_token = $1 AND deleted_at IS NULL", [token]);
+  if (legacy.rowCount) return { row: legacy.rows[0] };
+  return null;
 }
 
 export async function getByShareToken(token) {
-  const { rows } = await getPool().query("SELECT * FROM families WHERE share_token = $1", [token]);
-  return rows[0] ?? null;
+  const found = await lookupShare(token);
+  if (!found || found.expired) return null;
+  return found.row;
 }
 
 export async function listCatalog() {
@@ -313,6 +447,7 @@ export function summarize(row) {
     generations: countGenerations(people),
     shareToken: row.share_token,
     publicTree: row.is_catalog,
+    role: row.access_role || "owner",
   };
 }
 

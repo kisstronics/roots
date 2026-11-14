@@ -12,29 +12,12 @@ const port = 5173;
 const appBase = "/roots";
 const slugPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-const env = loadEnvFile(path.join(root, ".env"));
 const app = express();
 
 app.disable("x-powered-by");
 app.set("trust proxy", true);
 app.use(express.json({ limit: "8mb" }));
 await attachApi(app);
-
-app.post(["/__admin/login", `${appBase}/__admin/login`], (req, res) => {
-  const expectedUser = env.ADMIN_USERNAME ?? "";
-  const expectedPassword = env.ADMIN_PASSWORD ?? "";
-  if (!expectedUser || !expectedPassword) {
-    send(res, 503, { error: "Admin login is not configured." });
-    return;
-  }
-  const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
-  const password = typeof req.body?.password === "string" ? req.body.password : "";
-  if (username !== expectedUser || password !== expectedPassword) {
-    send(res, 401, { error: "Those credentials do not match the admin user." });
-    return;
-  }
-  send(res, 200, { ok: true, username });
-});
 
 app.post(["/__contact", `${appBase}/__contact`], (req, res) => {
   const email = typeof req.body?.email === "string" ? req.body.email.trim() : "";
@@ -169,27 +152,6 @@ function stripBase(urlPath) {
   if (urlPath === appBase) return "/";
   if (urlPath.startsWith(`${appBase}/`)) return urlPath.slice(appBase.length);
   return urlPath;
-}
-
-function loadEnvFile(file) {
-  const values = {};
-  if (!fs.existsSync(file)) return values;
-  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq === -1) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    values[key] = value;
-  }
-  return values;
 }
 
 function enquiryProblem(email, phone, enquiry) {

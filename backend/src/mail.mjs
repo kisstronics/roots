@@ -45,12 +45,84 @@ export function familyCreatedMessage(user, family) {
   };
 }
 
+export function shareMessage({ email, name, family, role, inviter, pending }) {
+  const person = displayName({ name, email });
+  const from = displayName(inviter);
+  const familyName = familyLabel(family);
+  const access = role === "editor" ? "edit" : "view";
+  const link = pending ? appUrl("/signup") : appUrl(`/admin/family/${family.slug}`);
+  const nextStep = pending
+    ? `Sign up with ${email} and this family will be waiting in your account.`
+    : `Open ${familyName} from your families.`;
+  return {
+    to: email,
+    subject: `${from} shared ${familyName} with you`,
+    text: [
+      `Hello ${person},`,
+      "",
+      `${from} gave you access to ${access} the ${familyName} family on Our Roots.`,
+      "",
+      nextStep,
+      "",
+      link,
+    ].join("\n"),
+    html: layout({
+      title: `${escapeHtml(from)} shared ${escapeHtml(familyName)} with you`,
+      body: `<p>Hello ${escapeHtml(person)},</p>
+<p>${escapeHtml(from)} gave you access to ${escapeHtml(access)} the ${escapeHtml(familyName)} family on Our Roots.</p>
+<p>${escapeHtml(nextStep)}</p>
+<p><a href="${escapeHtml(link)}">${pending ? "Sign up" : `Open ${escapeHtml(familyName)}`}</a></p>`,
+    }),
+  };
+}
+
+export function treeUpdatedMessage(recipient, family, editor) {
+  const person = displayName(recipient);
+  const who = displayName(editor);
+  const familyName = familyLabel(family);
+  const link = appUrl(`/admin/family/${family.slug}`);
+  return {
+    to: recipient.email,
+    subject: `${familyName} was updated`,
+    text: [
+      `Hello ${person},`,
+      "",
+      `${who} saved changes to the ${familyName} family.`,
+      "",
+      `Open it: ${link}`,
+    ].join("\n"),
+    html: layout({
+      title: `${escapeHtml(familyName)} was updated`,
+      body: `<p>Hello ${escapeHtml(person)},</p>
+<p>${escapeHtml(who)} saved changes to the ${escapeHtml(familyName)} family.</p>
+<p><a href="${escapeHtml(link)}">Open ${escapeHtml(familyName)}</a></p>`,
+    }),
+  };
+}
+
 export async function sendWelcomeEmail(user) {
   return deliver(welcomeMessage(user));
 }
 
 export async function sendFamilyCreatedEmail(user, family) {
   return deliver(familyCreatedMessage(user, family));
+}
+
+export async function sendShareEmail(details) {
+  return deliver(shareMessage(details));
+}
+
+export async function sendTreeUpdatedEmails(recipients, family, editor) {
+  let sent = false;
+  for (const recipient of recipients) {
+    if (!recipient?.email) continue;
+    try {
+      sent = (await deliver(treeUpdatedMessage(recipient, family, editor))) || sent;
+    } catch (error) {
+      console.error("Email failed:", error.message);
+    }
+  }
+  return sent;
 }
 
 export async function deliver(message) {
@@ -103,6 +175,10 @@ function smtpConfig() {
 function appUrl(path) {
   const base = (process.env.APP_PUBLIC_URL || "http://localhost:5173/roots").replace(/\/$/, "");
   return `${base}${path.startsWith("/") ? path : `/${path}`}`;
+}
+
+function familyLabel(family) {
+  return String(family?.name || "Your family").trim() || "Your family";
 }
 
 function displayName(user) {

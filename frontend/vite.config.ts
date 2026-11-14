@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import react from "@vitejs/plugin-react";
-import { defineConfig, loadEnv, type Connect, type Plugin } from "vite";
+import { defineConfig, type Connect, type Plugin } from "vite";
 
 const API_TARGET = process.env.API_PROXY_TARGET || "http://127.0.0.1:3001";
 const FAMILIES_DIR = path.resolve("public/families");
@@ -12,7 +12,7 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export default defineConfig({
   base: `${APP_BASE}/`,
-  plugins: [react(), baseRedirectPlugin(), familyFilesPlugin(), adminLoginPlugin(), contactPlugin()],
+  plugins: [react(), baseRedirectPlugin(), familyFilesPlugin(), contactPlugin()],
   server: {
     allowedHosts: ["carline-pachydermoid-jadon.ngrok-free.dev"],
     proxy: apiProxy(),
@@ -64,47 +64,6 @@ function baseRedirectPlugin(): Plugin {
       attach(server.middlewares);
     },
   };
-}
-
-function adminLoginPlugin(): Plugin {
-  return {
-    name: "admin-login",
-    configureServer(server) {
-      attachAdminLogin(server.middlewares, server.config.mode, server.config.root);
-    },
-    configurePreviewServer(server) {
-      attachAdminLogin(server.middlewares, server.config.mode, server.config.root);
-    },
-  };
-}
-
-function attachAdminLogin(middlewares: Connect.Server, mode: string, root: string) {
-  middlewares.use(async (req, res, next) => {
-    const url = stripBase(req.url?.split("?")[0] ?? "");
-    if (req.method !== "POST" || url !== "/__admin/login") {
-      next();
-      return;
-    }
-    try {
-      const env = loadEnv(mode, root, "");
-      const expectedUser = env.ADMIN_USERNAME ?? "";
-      const expectedPassword = env.ADMIN_PASSWORD ?? "";
-      if (!expectedUser || !expectedPassword) {
-        send(res, 503, { error: "Admin login is not configured." });
-        return;
-      }
-      const body = JSON.parse(await readBody(req)) as { username?: string; password?: string };
-      const username = body.username?.trim() ?? "";
-      const password = typeof body.password === "string" ? body.password : "";
-      if (username !== expectedUser || password !== expectedPassword) {
-        send(res, 401, { error: "Those credentials do not match the admin user." });
-        return;
-      }
-      send(res, 200, { ok: true, username });
-    } catch {
-      send(res, 400, { error: "Could not read the login." });
-    }
-  });
 }
 
 function contactPlugin(): Plugin {

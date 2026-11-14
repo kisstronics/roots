@@ -262,7 +262,9 @@ label.sr-only {
 }
 .search-results button:hover, .relative-group li:hover { background: var(--paper); }
 .search-results small { color: var(--ink-soft); }
-.save-cluster { display: flex; align-items: center; gap: 8px; }
+.save-cluster { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.view-link { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: min(420px, 70vw); }
+.view-link input { width: 100%; min-width: 0; padding: 7px 12px; text-overflow: ellipsis; }
 .status-line { color: var(--ink-soft); font-size: 0.85rem; max-width: 240px; }
 
 .add-bar { gap: 10px; padding: 6px 16px; }
@@ -628,6 +630,38 @@ textarea {
 .gender-choice { border: 0; margin: 0; padding: 0; display: flex; gap: 16px; }
 .gender-choice legend { padding: 0; margin-bottom: 6px; }
 .check { display: flex; align-items: center; gap: 8px; }
+.access-panel {
+  display: grid;
+  gap: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px;
+}
+.access-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+.access-heading .hint { margin: 0; }
+.access-more { display: grid; gap: 10px; }
+.access-more summary { cursor: pointer; color: var(--green); }
+.share-form { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.share-form label { display: grid; gap: 4px; flex: 1; min-width: 140px; }
+.member-list, .edit-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.member-row, .link-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.member-row span, .link-row span { min-width: 0; }
+.member-row small, .link-row small, .edit-log small { display: block; color: var(--ink-soft); }
+.link-row code {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.role-tag { font-size: 0.85rem; color: var(--ink-soft); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .login-wrap, .admin-home, .story { max-width: 1080px; margin: 0 auto; padding: 28px 22px 64px; }
 .story { display: grid; gap: 14px; align-content: start; max-width: 42rem; }
