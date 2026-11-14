@@ -50,6 +50,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS families_catalog_slug_idx
   ON families (slug)
   WHERE is_catalog;
 
+CREATE TABLE IF NOT EXISTS people (
+  family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
+  id TEXT NOT NULL,
+  first_name TEXT NOT NULL DEFAULT '',
+  last_name TEXT NOT NULL DEFAULT '',
+  gender TEXT NOT NULL DEFAULT 'male',
+  living BOOLEAN NOT NULL DEFAULT true,
+  birth_year INTEGER,
+  death_year INTEGER,
+  birthday TEXT,
+  deathday TEXT,
+  birth_location TEXT NOT NULL DEFAULT '',
+  current_location TEXT NOT NULL DEFAULT '',
+  notes TEXT NOT NULL DEFAULT '',
+  photo TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (family_id, id)
+);
+
 CREATE TABLE IF NOT EXISTS family_members (
   family_id UUID NOT NULL REFERENCES families (id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -161,7 +180,13 @@ export async function initDb() {
     CREATE UNIQUE INDEX IF NOT EXISTS families_owner_slug_active_idx
       ON families (owner_id, slug)
       WHERE owner_id IS NOT NULL AND deleted_at IS NULL;
+    ALTER TABLE families ADD COLUMN IF NOT EXISTS structure JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE families ADD COLUMN IF NOT EXISTS structure_updated_at TIMESTAMPTZ;
+    UPDATE families SET structure_updated_at = updated_at WHERE structure_updated_at IS NULL;
+    ALTER TABLE families ALTER COLUMN structure_updated_at SET DEFAULT now();
+    ALTER TABLE families ALTER COLUMN structure_updated_at SET NOT NULL;
   `);
+  await migratePeopleOutOfFamilies();
   await seedCatalog();
   await loadAppSettings(db);
 }
@@ -306,17 +331,105 @@ export async function createFamily(userId, { slug, name }) {
   return rows[0];
 }
 
-export async function updateFamily(user, slug, { name, people }) {
+export async function updatePerson(user, slug, personId, profile) {
   const existing = await getEditable(user, slug);
   if (!existing) throw new HttpError(404, "That family was not found.");
-  const { rows } = await getPool().query(
-    `UPDATE families
-     SET name = $1, people = $2::jsonb, updated_at = now()
-     WHERE id = $3
-     RETURNING *`,
-    [name, JSON.stringify(people), existing.id],
+  const id = cleanPersonId(personId);
+  const current = await getPool().query("SELECT * FROM people WHERE family_id = $1 AND id = $2", [existing.id, id]);
+  if (!current.rowCount) throw new HttpError(404, "That person is no longer in this family.");
+  if (sameProfile(current.rows[0], profile)) return { changed: false };
+  await getPool().query(
+    `UPDATE people
+     SET first_name = $3,
+         last_name = $4,
+         gender = $5,
+         living = $6,
+         birth_year = $7,
+         death_year = $8,
+         birthday = $9,
+         deathday = $10,
+         birth_location = $11,
+         current_location = $12,
+         notes = $13,
+         photo = $14,
+         updated_at = now()
+     WHERE family_id = $1 AND id = $2`,
+    [
+      existing.id,
+      id,
+      profile.firstName,
+      profile.lastName,
+      profile.gender,
+      profile.living,
+      profile.birthYear,
+      profile.deathYear,
+      profile.birthday,
+      profile.deathday,
+      profile.birthLocation,
+      profile.currentLocation,
+      profile.notes,
+      profile.photo,
+    ],
   );
-  return rows[0];
+  return { changed: true };
+}
+
+const STRUCTURE_CONFLICT = "Someone else updated this tree. Your change was not saved, and the latest tree is shown.";
+
+export async function updateStructure(user, slug, { name, structure, people, baseUpdatedAt }) {
+  const existing = await getEditable(user, slug);
+  if (!existing) throw new HttpError(404, "That family was not found.");
+  if (!Number.isFinite(new Date(baseUpdatedAt).getTime())) {
+    throw new HttpError(400, "Reload this tree before changing its structure.");
+  }
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query(
+      `SELECT * FROM families WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [existing.id],
+    );
+    if (!locked.rowCount) throw new HttpError(404, "That family was not found.");
+    const current = locked.rows[0];
+    if (!sameMillis(current.structure_updated_at, baseUpdatedAt)) {
+      const family = await mapFamily(current, client);
+      throw new HttpError(409, STRUCTURE_CONFLICT, { family });
+    }
+    const stored = cleanStructure(asStructure(current.structure).length ? current.structure : linksFromPeople(asPeople(current.people)));
+    const next = cleanStructure(structure);
+    if (current.name === name && JSON.stringify(stored) === JSON.stringify(next)) {
+      await client.query("COMMIT");
+      return { row: current, changed: false };
+    }
+    const profiles = new Map(people.map((person) => [person.id, person]));
+    for (const link of next) {
+      const profile = profiles.get(link.id) || emptyProfile();
+      await insertPerson(client, existing.id, link.id, profile);
+    }
+    await client.query("DELETE FROM people WHERE family_id = $1 AND id <> ALL($2::text[])", [
+      existing.id,
+      next.map((link) => link.id),
+    ]);
+    const saved = await client.query(
+      `UPDATE families
+       SET name = $1,
+           structure = $2::jsonb,
+           people = '[]'::jsonb,
+           structure_updated_at = now(),
+           updated_at = now()
+       WHERE id = $3
+       RETURNING *`,
+      [name, JSON.stringify(next), existing.id],
+    );
+    if (!saved.rowCount) throw new HttpError(404, "That family was not found.");
+    await client.query("COMMIT");
+    return { row: saved.rows[0], changed: true };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function deleteFamily(user, slug) {
@@ -439,7 +552,7 @@ export function countGenerations(people) {
 }
 
 export function summarize(row) {
-  const people = asPeople(row.people);
+  const people = summaryPeople(row);
   return {
     slug: row.slug,
     name: row.name,
@@ -451,22 +564,22 @@ export function summarize(row) {
   };
 }
 
-export function mapFamily(row) {
+export async function mapFamily(row, client = getPool()) {
   return {
     slug: row.slug,
     name: row.name,
-    people: asPeople(row.people),
-    updatedAt: new Date(row.updated_at).toISOString(),
+    people: await mergedPeople(client, row),
+    updatedAt: new Date(row.structure_updated_at || row.updated_at).toISOString(),
   };
 }
 
 export function cleanPeople(value) {
+  if (!value) return [];
   if (!Array.isArray(value)) throw new HttpError(400, "Family file is incomplete.");
-  if (value.length > 5000) throw new HttpError(400, "This family has too many people.");
-  const people = value.filter((person) => person && typeof person === "object" && typeof person.id === "string" && person.id);
-  const encoded = JSON.stringify(people);
-  if (encoded.length > 7_000_000) throw new HttpError(400, "That family is too large to save.");
-  return people;
+  return value.map((person) => ({
+    id: cleanPersonId(person?.id),
+    ...cleanPerson(person),
+  }));
 }
 
 export function cleanName(value) {
@@ -474,6 +587,295 @@ export function cleanName(value) {
   if (!name) throw new HttpError(400, "Enter a family name.");
   if (name.length > 80) throw new HttpError(400, "Use a shorter family name.");
   return name;
+}
+
+export function cleanPerson(value) {
+  const profile = profileFromPerson(value);
+  if (!profile.firstName) throw new HttpError(400, "Enter a first name.");
+  if (!profile.lastName) throw new HttpError(400, "Enter a last name.");
+  if (profile.photo && profile.photo.length > 2_000_000) throw new HttpError(400, "That photo is too large to save.");
+  return profile;
+}
+
+export function cleanPersonId(value) {
+  const id = typeof value === "string" ? value.trim() : "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) throw new HttpError(400, "That person could not be saved.");
+  return id;
+}
+
+export function cleanStructure(value) {
+  if (!Array.isArray(value)) throw new HttpError(400, "The tree structure is incomplete.");
+  if (value.length > 5000) throw new HttpError(400, "This family has too many people.");
+  const links = [];
+  const seen = new Set();
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    let id = "";
+    try {
+      id = cleanPersonId(item.id);
+    } catch {
+      continue;
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    links.push({
+      id,
+      parentIds: idList(item.parentIds),
+      spouseIds: idList(item.spouseIds),
+      siblingIds: idList(item.siblingIds),
+    });
+  }
+  for (const link of links) {
+    link.parentIds = link.parentIds.filter((parentId) => seen.has(parentId) && parentId !== link.id);
+    link.spouseIds = link.spouseIds.filter((spouseId) => seen.has(spouseId) && spouseId !== link.id);
+    link.siblingIds = link.siblingIds.filter((siblingId) => seen.has(siblingId) && siblingId !== link.id);
+  }
+  const byId = new Map(links.map((link) => [link.id, link]));
+  for (const link of links) {
+    for (const spouseId of link.spouseIds) {
+      const spouse = byId.get(spouseId);
+      if (spouse && !spouse.spouseIds.includes(link.id)) spouse.spouseIds.push(link.id);
+    }
+    for (const siblingId of link.siblingIds) {
+      const sibling = byId.get(siblingId);
+      if (sibling && !sibling.siblingIds.includes(link.id)) sibling.siblingIds.push(link.id);
+    }
+  }
+  return links;
+}
+
+export function linksFromPeople(people) {
+  return people
+    .filter((person) => person && person.id)
+    .map((person) => ({
+      id: String(person.id),
+      parentIds: idList(person.parentIds),
+      spouseIds: idList(person.spouseIds),
+      siblingIds: idList(person.siblingIds),
+    }));
+}
+
+export function sameMillis(left, right) {
+  const a = new Date(left).getTime();
+  const b = new Date(right).getTime();
+  return Number.isFinite(a) && a === b;
+}
+
+export function profileFromPerson(person) {
+  const source = person && typeof person === "object" ? person : {};
+  const birthday = toDate(source.birthday);
+  const deathday = toDate(source.deathday);
+  const recordedDeath = yearFromDate(deathday) ?? toYear(source.deathYear);
+  const living = typeof source.living === "boolean" ? source.living : recordedDeath === null && deathday === null;
+  return {
+    firstName: toText(source.firstName, 80),
+    lastName: toText(source.lastName, 80),
+    gender: source.gender === "female" ? "female" : "male",
+    living,
+    birthYear: yearFromDate(birthday) ?? toYear(source.birthYear),
+    deathYear: living ? null : recordedDeath,
+    birthday,
+    deathday: living ? null : deathday,
+    birthLocation: toText(source.birthLocation, 120),
+    currentLocation: toText(source.currentLocation, 120),
+    notes: toText(source.notes, 500),
+    photo: toPhoto(source.photo),
+  };
+}
+
+function summaryPeople(row) {
+  const links = asStructure(row.structure);
+  if (links.length) return links;
+  return asPeople(row.people);
+}
+
+async function mergedPeople(client, row) {
+  const links = asStructure(row.structure);
+  const source = links.length ? links : linksFromPeople(asPeople(row.people));
+  if (!source.length) return [];
+  const { rows } = await client.query("SELECT * FROM people WHERE family_id = $1", [row.id]);
+  if (!rows.length && !links.length) return asPeople(row.people);
+  const byId = new Map(rows.map((person) => [person.id, person]));
+  return source.map((link) => personFromRow(byId.get(link.id), link));
+}
+
+function personFromRow(row, link) {
+  const profile = row ? profileFromRow(row) : emptyProfile();
+  return {
+    id: link.id,
+    ...profile,
+    parentIds: idList(link.parentIds),
+    spouseIds: idList(link.spouseIds),
+    siblingIds: idList(link.siblingIds),
+  };
+}
+
+function profileFromRow(row) {
+  return {
+    firstName: row.first_name || "",
+    lastName: row.last_name || "",
+    gender: row.gender === "female" ? "female" : "male",
+    living: Boolean(row.living),
+    birthYear: toYear(row.birth_year),
+    deathYear: row.living ? null : toYear(row.death_year),
+    birthday: toDate(row.birthday),
+    deathday: row.living ? null : toDate(row.deathday),
+    birthLocation: row.birth_location || "",
+    currentLocation: row.current_location || "",
+    notes: row.notes || "",
+    photo: toPhoto(row.photo),
+  };
+}
+
+function emptyProfile() {
+  return profileFromPerson({});
+}
+
+function sameProfile(row, profile) {
+  const current = profileFromRow(row);
+  return (
+    current.firstName === profile.firstName &&
+    current.lastName === profile.lastName &&
+    current.gender === profile.gender &&
+    current.living === profile.living &&
+    current.birthYear === profile.birthYear &&
+    current.deathYear === profile.deathYear &&
+    current.birthday === profile.birthday &&
+    current.deathday === profile.deathday &&
+    current.birthLocation === profile.birthLocation &&
+    current.currentLocation === profile.currentLocation &&
+    current.notes === profile.notes &&
+    current.photo === profile.photo
+  );
+}
+
+async function insertPerson(client, familyId, personId, profile) {
+  const id = String(personId).trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return;
+  await client.query(
+    `INSERT INTO people (
+       family_id, id, first_name, last_name, gender, living,
+       birth_year, death_year, birthday, deathday,
+       birth_location, current_location, notes, photo
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     ON CONFLICT (family_id, id) DO NOTHING`,
+    [
+      familyId,
+      id,
+      profile.firstName,
+      profile.lastName,
+      profile.gender,
+      profile.living,
+      profile.birthYear,
+      profile.deathYear,
+      profile.birthday,
+      profile.deathday,
+      profile.birthLocation,
+      profile.currentLocation,
+      profile.notes,
+      profile.photo,
+    ],
+  );
+}
+
+function asStructure(value) {
+  const list = asPeople(value);
+  return list
+    .filter((item) => item && typeof item.id === "string" && item.id)
+    .map((item) => ({
+      id: item.id,
+      parentIds: idList(item.parentIds),
+      spouseIds: idList(item.spouseIds),
+      siblingIds: idList(item.siblingIds),
+    }));
+}
+
+function idList(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const ids = [];
+  for (const item of value) {
+    const id = typeof item === "string" ? item.trim() : "";
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function toPhoto(value) {
+  if (typeof value !== "string") return null;
+  const photo = value.trim();
+  if (!photo.startsWith("data:image/")) return null;
+  return photo;
+}
+
+function toYear(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const year = Number(value);
+  if (!Number.isInteger(year) || year < 1 || year > 9999) return null;
+  return year;
+}
+
+function yearFromDate(value) {
+  if (!value) return null;
+  const match = /^(\d{4})-\d{2}-\d{2}$/.exec(value);
+  return match ? Number(match[1]) : null;
+}
+
+function toDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value;
+}
+
+function toText(value, max) {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, max);
+}
+
+async function migratePeopleOutOfFamilies() {
+  const { rows } = await getPool().query(
+    `SELECT id, people, structure, updated_at
+     FROM families
+     WHERE jsonb_typeof(people) = 'array' AND jsonb_array_length(people) > 0`,
+  );
+  for (const row of rows) {
+    const people = asPeople(row.people);
+    if (!people.some((person) => person && (person.firstName || person.lastName || person.parentIds || person.spouseIds))) {
+      continue;
+    }
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      const count = await client.query("SELECT count(*)::int AS count FROM people WHERE family_id = $1", [row.id]);
+      if ((count.rows[0]?.count ?? 0) === 0) {
+        for (const person of people) {
+          if (!person?.id) continue;
+          await insertPerson(client, row.id, person.id, profileFromPerson(person));
+        }
+      }
+      const structure = asStructure(row.structure);
+      if (!structure.length) {
+        await client.query(
+          `UPDATE families
+           SET structure = $2::jsonb,
+               structure_updated_at = COALESCE(structure_updated_at, $3),
+               people = '[]'::jsonb
+           WHERE id = $1`,
+          [row.id, JSON.stringify(linksFromPeople(people)), row.updated_at],
+        );
+      } else {
+        await client.query("UPDATE families SET people = '[]'::jsonb WHERE id = $1", [row.id]);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error("Could not move people out of the family record:", error.message);
+    } finally {
+      client.release();
+    }
+  }
 }
 
 async function seedCatalog() {
@@ -492,11 +894,26 @@ async function seedCatalog() {
       const updated = Number.isNaN(parsedTime) ? new Date() : new Date(parsedTime);
       const existing = await getPool().query("SELECT 1 FROM families WHERE is_catalog AND slug = $1", [slug]);
       if (existing.rowCount) continue;
-      await getPool().query(
-        `INSERT INTO families (id, slug, name, people, is_catalog, updated_at)
-         VALUES ($1, $2, $3, $4::jsonb, true, $5)`,
-        [randomUUID(), slug, name.slice(0, 80), JSON.stringify(people), updated],
-      );
+      const familyId = randomUUID();
+      const client = await getPool().connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(
+          `INSERT INTO families (id, slug, name, people, structure, is_catalog, updated_at, structure_updated_at)
+           VALUES ($1, $2, $3, '[]'::jsonb, $4::jsonb, true, $5, $5)`,
+          [familyId, slug, name.slice(0, 80), JSON.stringify(linksFromPeople(people)), updated],
+        );
+        for (const person of people) {
+          if (!person?.id) continue;
+          await insertPerson(client, familyId, String(person.id), profileFromPerson(person));
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
     } catch (error) {
       console.error(`Could not import ${file}:`, error.message);
     }

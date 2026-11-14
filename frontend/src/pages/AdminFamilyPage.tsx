@@ -4,7 +4,7 @@ import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { TreeWorkspace } from "../components/TreeWorkspace";
 import { FamilyAccessPanel } from "../components/FamilyShareDialog";
-import { deleteFamily, downloadFamily, enqueueSave, ensureViewLink, loadOwnedFamily, shareUrl, type FamilyAccess } from "../lib/storage";
+import { deleteFamily, downloadFamily, enqueueSave, ensureViewLink, loadOwnedFamily, rememberFamily, shareUrl, type FamilyAccess } from "../lib/storage";
 import type { Family } from "../types";
 
 export function AdminFamilyPage() {
@@ -28,7 +28,7 @@ export function AdminFamilyPage() {
         if (cancel) return;
         if (!loaded) setError("This family does not exist.");
         else {
-          setFamily(loaded.family);
+          setFamily(rememberFamily(loaded.family));
           setAccess(loaded);
           setViewToken(loaded.viewToken);
         }
@@ -70,9 +70,21 @@ export function AdminFamilyPage() {
                 : (next) => {
                     setFamily(next);
                     setSaveError(null);
-                    void enqueueSave(next).catch((reason) => {
-                      setSaveError(reason instanceof Error ? reason.message : "The family could not be saved.");
-                    });
+                    void enqueueSave(next)
+                      .then((saved) => {
+                        setFamily((current) => {
+                          if (!current || current.slug !== saved.slug) return current;
+                          if (Date.parse(current.updatedAt) >= Date.parse(saved.updatedAt)) return current;
+                          return { ...current, updatedAt: saved.updatedAt };
+                        });
+                      })
+                      .catch((reason) => {
+                        const stale = typeof reason === "object" && reason !== null && "stale" in reason && reason.stale;
+                        if (stale) return;
+                        const latest = typeof reason === "object" && reason !== null && "family" in reason ? reason.family : null;
+                        if (latest && typeof latest === "object") setFamily(latest as Family);
+                        setSaveError(reason instanceof Error ? reason.message : "The family could not be saved.");
+                      });
                   }
             }
             toolbarExtra={
@@ -94,6 +106,7 @@ export function AdminFamilyPage() {
                 )}
               </>
             }
+            saveError={saveError}
             accessView={
               <FamilyAccessView
                 access={access}

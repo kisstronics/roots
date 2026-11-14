@@ -4,6 +4,7 @@ import { isSiteAdmin } from "./admin.mjs";
 import {
   cleanName,
   cleanPeople,
+  cleanPerson,
   countOwned,
   createFamily,
   deleteFamily,
@@ -19,7 +20,8 @@ import {
   mapFamily,
   maxFamilies,
   summarize,
-  updateFamily,
+  updatePerson,
+  updateStructure,
   upsertGoogleUser,
 } from "./db.mjs";
 import {
@@ -213,7 +215,7 @@ function createRouter() {
         send(res, 404, { error: "That family was not found." });
         return;
       }
-      send(res, 200, { family: mapFamily(row) });
+      send(res, 200, { family: await mapFamily(row) });
     }),
   );
 
@@ -237,7 +239,7 @@ function createRouter() {
     if (!isSafeSlug(slug)) throw new HttpError(400, "Use a family name with letters or numbers.");
     const row = await createFamily(req.user.id, { slug, name });
     await notify(() => sendFamilyCreatedEmail(req.user, row));
-    send(res, 201, { family: mapFamily(row), shareToken: null });
+    send(res, 201, { family: await mapFamily(row), shareToken: null });
   }));
 
   router.get("/families/:slug", requireUser, asyncRoute(async (req, res) => {
@@ -245,18 +247,29 @@ function createRouter() {
     send(res, 200, await familyPayload(req.user, row));
   }));
 
-  router.put("/families/:slug", requireUser, asyncRoute(async (req, res) => {
-    const row = await readableOr404(req);
-    if (row.access_role === "viewer") throw new HttpError(403, "You can view this tree, but only an editor can change it.");
+  router.put("/families/:slug/people/:personId", requireUser, asyncRoute(async (req, res) => {
+    const row = await editableFamily(req);
+    const profile = cleanPerson(req.body);
+    const saved = await updatePerson(req.user, row.slug, req.params.personId, profile);
+    if (saved.changed) await notifyEditors(req, row);
+    send(res, 200, { ok: true, updatedAt: new Date(row.structure_updated_at || row.updated_at).toISOString() });
+  }));
+
+  router.put("/families/:slug/structure", requireUser, asyncRoute(async (req, res) => {
+    const row = await editableFamily(req);
     const name = cleanName(req.body?.name ?? row.name);
-    const people = cleanPeople(req.body?.people);
-    const saved = await updateFamily(req.user, row.slug, { name, people });
-    const changed = await recordEdit(req.user, row, saved);
-    if (changed) {
-      const recipients = await listUpdateRecipients(saved.id, req.user.id);
-      await notify(() => sendTreeUpdatedEmails(recipients, saved, req.user));
-    }
-    send(res, 200, { ok: true, family: mapFamily(saved) });
+    const saved = await updateStructure(req.user, row.slug, {
+      name,
+      structure: req.body?.structure,
+      people: cleanPeople(req.body?.people),
+      baseUpdatedAt: req.body?.baseUpdatedAt,
+    });
+    if (saved.changed) await notifyEditors(req, saved.row);
+    send(res, 200, { ok: true, family: await mapFamily(saved.row) });
+  }));
+
+  router.put("/families/:slug", requireUser, asyncRoute(async () => {
+    throw new HttpError(409, "Reload this tree before saving. Person details and the tree structure are saved separately.");
   }));
 
   router.delete("/families/:slug", requireUser, asyncRoute(async (req, res) => {
@@ -341,7 +354,7 @@ function createRouter() {
         send(res, 404, { error: "This link does not open a family." });
         return;
       }
-      send(res, 200, { family: mapFamily(found.row) });
+      send(res, 200, { family: await mapFamily(found.row) });
     }),
   );
 
@@ -370,6 +383,19 @@ async function userFromSession(req) {
   return findUserById(payload.uid);
 }
 
+async function editableFamily(req) {
+  const row = await readableOr404(req);
+  if (row.access_role === "viewer") throw new HttpError(403, "You can view this tree, but only an editor can change it.");
+  return row;
+}
+
+async function notifyEditors(req, family) {
+  const changed = await recordEdit(req.user, family.id);
+  if (!changed) return;
+  const recipients = await listUpdateRecipients(family.id, req.user.id);
+  await notify(() => sendTreeUpdatedEmails(recipients, family, req.user));
+}
+
 async function readableOr404(req) {
   const slug = String(req.params.slug || "").toLowerCase();
   if (!isSafeSlug(slug)) throw new HttpError(404, "That family was not found.");
@@ -386,7 +412,7 @@ async function familyPayload(user, row) {
     listAccessEvents(row.id),
   ]);
   return {
-    family: mapFamily(row),
+    family: await mapFamily(row),
     role: row.access_role,
     viewToken: row.share_token,
     members,
