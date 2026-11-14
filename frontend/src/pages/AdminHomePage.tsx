@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { SiteFooter } from "../components/SiteFooter";
 import { SiteHeader } from "../components/SiteHeader";
 import { slugify } from "../lib/people";
-import { createFamily, deleteFamily, isSafeSlug, loadOwnedIndex } from "../lib/storage";
+import { createFamily, isSafeSlug, loadOwnedIndex } from "../lib/storage";
 import type { FamilySummary } from "../types";
 
 export function AdminHomePage() {
@@ -14,7 +14,6 @@ export function AdminHomePage() {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [pendingDelete, setPendingDelete] = useState<FamilySummary | null>(null);
 
   async function refresh() {
     const data = await loadOwnedIndex();
@@ -37,13 +36,8 @@ export function AdminHomePage() {
       <SiteHeader variant="admin" />
       <main className="admin-home">
         <section className="create-card">
-          <p className="eyebrow">New family</p>
-          <h1>Create a family</h1>
-          <p className="hint">
-            You have {familyCount} of {maxFamilies} families. Share a tree with another account, or make your own link.
-          </p>
           <form
-            className="open-form"
+            className="create-line"
             onSubmit={async (event) => {
               event.preventDefault();
               const slug = slugify(name);
@@ -62,20 +56,22 @@ export function AdminHomePage() {
               }
             }}
           >
-            <label>
-              Family name
-              <input
-                value={name}
-                placeholder="Nair"
-                onChange={(event) => {
-                  setName(event.target.value);
-                  setError(null);
-                }}
-              />
-            </label>
+            <p className="eyebrow">New family</p>
+            <input
+              aria-label="Family name"
+              value={name}
+              placeholder="Family name"
+              onChange={(event) => {
+                setName(event.target.value);
+                setError(null);
+              }}
+            />
             <button type="submit" className="button primary" disabled={busy || atLimit}>
-              {busy ? "Creating…" : "Create family"}
+              {busy ? "Creating…" : "Create"}
             </button>
+            <span className="hint">
+              {familyCount} of {maxFamilies}
+            </span>
           </form>
           {atLimit && <p className="form-error">You have reached the limit of {maxFamilies} families.</p>}
           {error && <p className="form-error">{error}</p>}
@@ -95,16 +91,8 @@ export function AdminHomePage() {
                 </span>
                 <div className="inline-actions">
                   <Link className="button primary" to={`/admin/family/${family.slug}`}>
-                    {family.role === "viewer" ? "View tree" : "Edit tree"}
+                    View tree
                   </Link>
-                  <Link className="button ghost" to={`/admin/access/${family.slug}`}>
-                    Access
-                  </Link>
-                  {family.role === "owner" && (
-                    <button type="button" className="button ghost" onClick={() => setPendingDelete(family)}>
-                      Delete
-                    </button>
-                  )}
                 </div>
               </article>
             ))}
@@ -112,39 +100,6 @@ export function AdminHomePage() {
         </section>
       </main>
       <SiteFooter />
-      {pendingDelete && (
-        <div className="backdrop" onMouseDown={() => setPendingDelete(null)}>
-          <section
-            className="modal"
-            role="dialog"
-            aria-labelledby="delete-title"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <p className="eyebrow">Delete family</p>
-            <h2 id="delete-title">Delete {pendingDelete.name}?</h2>
-            <p className="hint">
-              The tree leaves your list and its view link stops opening. The record is kept.
-            </p>
-            <div className="modal-actions">
-              <button type="button" className="button ghost" onClick={() => setPendingDelete(null)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button danger"
-                onClick={async () => {
-                  const slug = pendingDelete.slug;
-                  setPendingDelete(null);
-                  await deleteFamily(slug);
-                  await refresh();
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </div>
   );
 }

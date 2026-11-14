@@ -27,23 +27,27 @@ export function HomePage() {
 
 function HeroTree() {
   return (
-    <svg className="hero-tree" viewBox="0 0 320 280" aria-hidden="true">
-      <path d="M160 58v28M160 86H84v18M160 86h76v18M160 168v20" />
-      <g className="male">
-        <rect x="112" y="18" width="96" height="40" rx="12" />
-        <text x="160" y="43">Parents</text>
+    <svg className="hero-tree" viewBox="0 0 320 300" aria-hidden="true">
+      <path d="M160 58 V76 Q160 92 96 92 Q96 108 96 116" />
+      <path d="M160 76 Q160 92 224 92 Q224 108 224 116" />
+      <path className="spouse" d="M96 198 Q160 226 224 198" />
+      <circle className="knot" cx="160" cy="212" r="3.5" />
+      <path d="M160 212 V228" />
+      <g className="portrait">
+        <circle cx="160" cy="34" r="24" />
+        <text x="160" y="74">Parents</text>
       </g>
-      <g className="focus">
-        <rect x="22" y="104" width="124" height="52" rx="12" />
-        <text x="84" y="134">Son</text>
+      <g className="portrait focus">
+        <circle cx="96" cy="144" r="26" />
+        <text x="96" y="186">Son</text>
       </g>
-      <g className="female">
-        <rect x="174" y="104" width="124" height="52" rx="12" />
-        <text x="236" y="134">Daughter</text>
+      <g className="portrait female">
+        <circle cx="224" cy="144" r="26" />
+        <text x="224" y="186">Daughter</text>
       </g>
-      <g className="male">
-        <rect x="98" y="188" width="124" height="52" rx="12" />
-        <text x="160" y="218">Child</text>
+      <g className="portrait">
+        <circle cx="160" cy="252" r="20" />
+        <text x="160" y="286">Child</text>
       </g>
     </svg>
   );

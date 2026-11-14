@@ -315,11 +315,15 @@ export function TreeCanvas({
           ))}
           <svg className="edges" width={layout.width} height={layout.height}>
             {layout.edges.map((edge) => (
-              <g key={edge.id} className="edge-group" data-kind={edge.kind}>
+              <g
+                key={edge.id}
+                className={selectedId && edge.kind === "parent" && edge.childId === selectedId ? "edge-group is-selected-path" : "edge-group"}
+                data-kind={edge.kind}
+              >
                 <path d={edge.d} className="edge">
                   <title>{edge.title}</title>
                 </path>
-                {edge.d2 && <path d={edge.d2} className="edge" />}
+                {edge.d2 && <path d={edge.d2} className={edge.kind === "spouse" ? "edge-knot" : "edge"} />}
               </g>
             ))}
           </svg>

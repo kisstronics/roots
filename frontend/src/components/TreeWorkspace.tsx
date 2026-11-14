@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Family, NewPersonInput, RelationKind } from "../types";
 import { addRelative, createPerson, removePerson, updatePerson } from "../lib/edit";
@@ -19,14 +19,17 @@ const ADD_OPTIONS: { kind: RelationKind; label: string }[] = [
   { kind: "mother", label: "Mother" },
 ];
 
+type WorkspaceTab = "access" | "stats" | "tree";
+
 interface TreeWorkspaceProps {
   family: Family;
   mode: "view" | "edit";
   onChange?: (family: Family) => void;
   toolbarExtra?: ReactNode;
+  accessView?: ReactNode;
 }
 
-export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWorkspaceProps) {
+export function TreeWorkspace({ family, mode, onChange, toolbarExtra, accessView }: TreeWorkspaceProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [revealId, setRevealId] = useState<string | null>(null);
   const [revealNonce, setRevealNonce] = useState(0);
@@ -35,26 +38,9 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
   const [confirming, setConfirming] = useState(false);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
-  const [statsOpen, setStatsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const statsRef = useRef<HTMLDivElement>(null);
+  const [tab, setTab] = useState<WorkspaceTab>("tree");
   const stats = useMemo(() => familyStats(family.people), [family.people]);
-
-  useEffect(() => {
-    if (!statsOpen) return;
-    const onPointer = (event: MouseEvent) => {
-      if (!statsRef.current?.contains(event.target as Node)) setStatsOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setStatsOpen(false);
-    };
-    window.addEventListener("mousedown", onPointer);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onPointer);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [statsOpen]);
 
   useEffect(() => {
     if (!toast) return;
@@ -83,6 +69,7 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
   if (!family.people.length) {
     return (
       <section className="empty-tree">
+        {toolbarExtra && <div className="toolbar-tools">{toolbarExtra}</div>}
         <p className="eyebrow">{family.name}</p>
         <h1>This family has no people yet.</h1>
         {mode === "edit" ? (
@@ -173,65 +160,26 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
             <span aria-hidden="true"> / </span>
             {family.name}
           </p>
+          <div className="workspace-tabs" role="tablist" aria-label="Family sections">
+            {accessView && (
+              <button type="button" role="tab" aria-selected={tab === "access"} onClick={() => setTab("access")}>
+                Access
+              </button>
+            )}
+            <button type="button" role="tab" aria-selected={tab === "stats"} onClick={() => setTab("stats")}>
+              Stats
+            </button>
+            <button type="button" role="tab" aria-selected={tab === "tree"} onClick={() => setTab("tree")}>
+              Tree
+            </button>
+          </div>
           <p className="tree-count">
             <span>{family.people.length} total</span>
             <span>{family.people.filter((person) => person.living).length} living</span>
           </p>
-          <div className="stats-wrap" ref={statsRef}>
-            <button
-              type="button"
-              className="button ghost"
-              aria-expanded={statsOpen}
-              onClick={() => setStatsOpen((open) => !open)}
-            >
-              Stats
-            </button>
-            {statsOpen && (
-              <div className="stats-panel" role="dialog" aria-label="Family stats">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">Group</th>
-                      <th scope="col">Total</th>
-                      <th scope="col">Males</th>
-                      <th scope="col">Females</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.rows.map((row) => (
-                      <tr key={row.label}>
-                        <th scope="row">
-                          {row.label}
-                          {row.hint && <small>{row.hint}</small>}
-                        </th>
-                        <td>
-                          {row.total}
-                          <small>{row.living} living</small>
-                        </td>
-                        <td>
-                          {row.males}
-                          <small>{row.malesLiving} living</small>
-                        </td>
-                        <td>
-                          {row.females}
-                          <small>{row.femalesLiving} living</small>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {stats.unknown > 0 && (
-                  <p className="hint">
-                    {stats.unknown} {stats.unknown === 1 ? "person has" : "people have"} no birth year, so they are counted
-                    only in Total.
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
         </div>
         <div className="toolbar-tools">
-          <div className="search">
+          {tab === "tree" && <div className="search">
             <label className="sr-only" htmlFor="person-search">
               Find a person
             </label>
@@ -260,12 +208,12 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
                 ))}
               </ul>
             )}
-          </div>
+          </div>}
           {toolbarExtra}
         </div>
       </div>
 
-      {mode === "edit" && selected && (
+      {tab === "tree" && mode === "edit" && selected && (
         <div className="add-bar" data-testid="relative-bar">
           <p>{fullName(selected)}</p>
           <div className="rel-actions">
@@ -301,20 +249,24 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
       )}
 
       <div className="workspace-body">
-        <TreeCanvas
-          people={family.people}
-          selectedId={selectedId}
-          revealId={revealId}
-          revealNonce={revealNonce}
-          onSelectPerson={selectPerson}
-          onOpenPerson={openPerson}
-          onBackground={() => {
-            if (mode === "view") {
-              setSelectedId(null);
-              setDetailsOpen(false);
-            }
-          }}
-        />
+        {tab === "tree" && (
+          <TreeCanvas
+            people={family.people}
+            selectedId={selectedId}
+            revealId={revealId}
+            revealNonce={revealNonce}
+            onSelectPerson={selectPerson}
+            onOpenPerson={openPerson}
+            onBackground={() => {
+              if (mode === "view") {
+                setSelectedId(null);
+                setDetailsOpen(false);
+              }
+            }}
+          />
+        )}
+        {tab === "stats" && <StatsSheet stats={stats} />}
+        {tab === "access" && accessView && <div className="workspace-panel">{accessView}</div>}
       </div>
 
       {dialog && (
@@ -344,6 +296,53 @@ export function TreeWorkspace({ family, mode, onChange, toolbarExtra }: TreeWork
         </div>
       )}
     </section>
+  );
+}
+
+function StatsSheet({ stats }: { stats: ReturnType<typeof familyStats> }) {
+  return (
+    <div className="workspace-panel">
+      <div className="stats-sheet" aria-label="Family stats">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Group</th>
+              <th scope="col">Total</th>
+              <th scope="col">Males</th>
+              <th scope="col">Females</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.rows.map((row) => (
+              <tr key={row.label}>
+                <th scope="row">
+                  {row.label}
+                  {row.hint && <small>{row.hint}</small>}
+                </th>
+                <td>
+                  {row.total}
+                  <small>{row.living} living</small>
+                </td>
+                <td>
+                  {row.males}
+                  <small>{row.malesLiving} living</small>
+                </td>
+                <td>
+                  {row.females}
+                  <small>{row.femalesLiving} living</small>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {stats.unknown > 0 && (
+          <p className="hint">
+            {stats.unknown} {stats.unknown === 1 ? "person has" : "people have"} no birth year, so they are counted only in
+            Total.
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
