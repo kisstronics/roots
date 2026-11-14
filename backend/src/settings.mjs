@@ -1,4 +1,4 @@
-import { applyDevDefaults } from "./dev-defaults.mjs";
+import { applyDevDefaults, applyLocalUrls, isLocalRuntime, LOCAL_URL_KEYS } from "./dev-defaults.mjs";
 
 export const APP_SETTING_KEYS = [
   "SESSION_SECRET",
@@ -18,11 +18,19 @@ export const APP_SETTING_KEYS = [
 ];
 
 export async function loadAppSettings(client) {
+  const local = isLocalRuntime();
+  const localSnapshot = {};
+  if (local) {
+    for (const key of LOCAL_URL_KEYS) {
+      if (process.env[key] !== undefined) localSnapshot[key] = process.env[key];
+    }
+  }
   const missingKeys = [];
   const missingValues = [];
   const current = await readSettings(client);
   for (const key of APP_SETTING_KEYS) {
     if (current.has(key)) continue;
+    if (local && LOCAL_URL_KEYS.includes(key)) continue;
     const value = process.env[key];
     if (!value) continue;
     missingKeys.push(key);
@@ -41,6 +49,9 @@ export async function loadAppSettings(client) {
   for (const key of APP_SETTING_KEYS) {
     if (!settings.has(key)) continue;
     process.env[key] = settings.get(key);
+  }
+  if (applyLocalUrls(localSnapshot)) {
+    console.log("Local runtime is using local app URLs. The database connection is unchanged.");
   }
   applyDevDefaults();
   const loaded = APP_SETTING_KEYS.filter((key) => settings.has(key)).length;
