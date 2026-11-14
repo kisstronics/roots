@@ -5,16 +5,13 @@ import { fileURLToPath } from "node:url";
 const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = path.resolve(backendRoot, "..");
 
+// DATABASE_URL is the only setting read from the environment.
+// Session, Google, mail, and site settings are loaded from app_settings after connect.
 loadEnvFile(path.join(backendRoot, ".env"));
 loadEnvFile(path.join(repoRoot, "frontend", ".env"));
 
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = "postgres://our_roots:our_roots@127.0.0.1:5432/our_roots";
-}
-
-if (!process.env.SESSION_SECRET) {
-  process.env.SESSION_SECRET = "dev-only-change-me";
-  console.warn("SESSION_SECRET is not set. Using a development secret.");
 }
 
 function loadEnvFile(file) {

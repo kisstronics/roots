@@ -8,10 +8,11 @@ import {
   createFamily,
   deleteFamily,
   ensureShareToken,
+  ensureViewToken,
   findUserById,
-  getByShareToken,
   getCatalog,
-  getEditable,
+  getReadable,
+  lookupShare,
   initDb,
   listCatalog,
   listForUser,
@@ -33,7 +34,22 @@ import {
   send,
   writeCookie,
 } from "./http.mjs";
-import { sendFamilyCreatedEmail, sendWelcomeEmail } from "./mail.mjs";
+import { sendFamilyCreatedEmail, sendShareEmail, sendTreeUpdatedEmails, sendWelcomeEmail } from "./mail.mjs";
+import {
+  changeMember,
+  claimInvites,
+  createLink,
+  grantMember,
+  listAccessEvents,
+  listEdits,
+  listLinks,
+  listMembers,
+  listUpdateRecipients,
+  recordAccess,
+  recordEdit,
+  removeMember,
+  revokeLink,
+} from "./access.mjs";
 import { OAUTH_COOKIE, SESSION_COOKIE, sign, verify } from "./session.mjs";
 import { isSafeSlug, slugify } from "./slug.mjs";
 
@@ -153,6 +169,7 @@ function createRouter() {
         name: String(profile.name || email).slice(0, 120),
         picture: typeof profile.picture === "string" ? profile.picture : null,
       });
+      await claimInvites(user);
       if (created) await notify(() => sendWelcomeEmail(user));
       writeCookie(res, SESSION_COOKIE, sign({ uid: user.id, exp: Date.now() + SESSION_SECONDS * 1000 }), {
         maxAge: SESSION_SECONDS,
@@ -224,26 +241,85 @@ function createRouter() {
   }));
 
   router.get("/families/:slug", requireUser, asyncRoute(async (req, res) => {
-    const row = await editableOr404(req);
-    send(res, 200, { family: mapFamily(row), shareToken: row.share_token, publicTree: row.is_catalog });
+    const row = await readableOr404(req);
+    send(res, 200, await familyPayload(req.user, row));
   }));
 
   router.put("/families/:slug", requireUser, asyncRoute(async (req, res) => {
-    const row = await editableOr404(req);
+    const row = await readableOr404(req);
+    if (row.access_role === "viewer") throw new HttpError(403, "You can view this tree, but only an editor can change it.");
     const name = cleanName(req.body?.name ?? row.name);
     const people = cleanPeople(req.body?.people);
     const saved = await updateFamily(req.user, row.slug, { name, people });
+    const changed = await recordEdit(req.user, row, saved);
+    if (changed) {
+      const recipients = await listUpdateRecipients(saved.id, req.user.id);
+      await notify(() => sendTreeUpdatedEmails(recipients, saved, req.user));
+    }
     send(res, 200, { ok: true, family: mapFamily(saved) });
   }));
 
   router.delete("/families/:slug", requireUser, asyncRoute(async (req, res) => {
-    const row = await editableOr404(req);
+    const row = await readableOr404(req);
     await deleteFamily(req.user, row.slug);
+    await recordAccess(req.user, row.id, "deleted");
     send(res, 200, { ok: true });
   }));
 
+  router.post("/families/:slug/members", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    const member = await grantMember(req.user, row, req.body?.email, req.body?.role);
+    await notify(() =>
+      sendShareEmail({
+        email: member.email,
+        name: member.name,
+        family: row,
+        role: member.role,
+        inviter: req.user,
+        pending: member.pending,
+      }),
+    );
+    send(res, 200, { member, members: await listMembers(row.id), accessLog: await listAccessEvents(row.id) });
+  }));
+
+  router.put("/families/:slug/members/:userId", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    await changeMember(req.user, row, req.params.userId, req.body?.role);
+    send(res, 200, { members: await listMembers(row.id), accessLog: await listAccessEvents(row.id) });
+  }));
+
+  router.delete("/families/:slug/members/:userId", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    await removeMember(req.user, row, req.params.userId);
+    send(res, 200, { members: await listMembers(row.id), accessLog: await listAccessEvents(row.id) });
+  }));
+
+  router.post("/families/:slug/links", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    const link = await createLink(req.user, row, req.body?.expiry);
+    send(res, 201, {
+      link,
+      path: `/share/${link.token}`,
+      links: await listLinks(req.user.id, row.id),
+      accessLog: await listAccessEvents(row.id),
+    });
+  }));
+
+  router.delete("/families/:slug/links/:linkId", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    await revokeLink(req.user, row, req.params.linkId);
+    send(res, 200, { links: await listLinks(req.user.id, row.id), accessLog: await listAccessEvents(row.id) });
+  }));
+
+  router.post("/families/:slug/view-link", requireUser, asyncRoute(async (req, res) => {
+    const row = await readableOr404(req);
+    const view = await ensureViewToken(req.user, row.slug);
+    if (view.created) await recordAccess(req.user, row.id, "view_link");
+    send(res, 200, { shareToken: view.token, path: `/share/${view.token}`, accessLog: await listAccessEvents(row.id) });
+  }));
+
   router.post("/families/:slug/share", requireUser, asyncRoute(async (req, res) => {
-    const row = await editableOr404(req);
+    const row = await readableOr404(req);
     const shareToken = await ensureShareToken(req.user, row.slug);
     send(res, 200, { shareToken, path: `/share/${shareToken}` });
   }));
@@ -256,12 +332,16 @@ function createRouter() {
         send(res, 404, { error: "This link does not open a family." });
         return;
       }
-      const row = await getByShareToken(token);
-      if (!row) {
+      const found = await lookupShare(token);
+      if (found?.expired) {
+        send(res, 410, { error: "This link has expired." });
+        return;
+      }
+      if (!found?.row) {
         send(res, 404, { error: "This link does not open a family." });
         return;
       }
-      send(res, 200, { family: mapFamily(row) });
+      send(res, 200, { family: mapFamily(found.row) });
     }),
   );
 
@@ -290,12 +370,30 @@ async function userFromSession(req) {
   return findUserById(payload.uid);
 }
 
-async function editableOr404(req) {
+async function readableOr404(req) {
   const slug = String(req.params.slug || "").toLowerCase();
   if (!isSafeSlug(slug)) throw new HttpError(404, "That family was not found.");
-  const row = await getEditable(req.user, slug);
+  const row = await getReadable(req.user, slug);
   if (!row) throw new HttpError(404, "That family was not found.");
   return row;
+}
+
+async function familyPayload(user, row) {
+  const [members, links, edits, accessLog] = await Promise.all([
+    listMembers(row.id),
+    listLinks(user.id, row.id),
+    listEdits(row.id),
+    listAccessEvents(row.id),
+  ]);
+  return {
+    family: mapFamily(row),
+    role: row.access_role,
+    viewToken: row.share_token,
+    members,
+    links,
+    edits,
+    accessLog,
+  };
 }
 
 function googleConfig() {

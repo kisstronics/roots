@@ -1,4 +1,4 @@
-import type { Family, FamilySummary } from "../types";
+import type { AccessEvent, Family, FamilyEdit, FamilyMember, FamilyRole, FamilySummary, ShareLink } from "../types";
 import { apiUrl, appUrl } from "./paths";
 import { normalizeFamily } from "./people";
 
@@ -6,6 +6,16 @@ export interface OwnedFamilyList {
   families: FamilySummary[];
   maxFamilies: number;
   familyCount: number;
+}
+
+export interface FamilyAccess {
+  family: Family;
+  role: FamilyRole;
+  viewToken: string | null;
+  members: FamilyMember[];
+  links: ShareLink[];
+  edits: FamilyEdit[];
+  accessLog: AccessEvent[];
 }
 
 export async function loadIndex(): Promise<FamilySummary[]> {
@@ -34,12 +44,28 @@ export async function loadOwnedIndex(): Promise<OwnedFamilyList> {
   };
 }
 
-export async function loadOwnedFamily(slug: string): Promise<{ family: Family; shareToken: string | null } | null> {
+export async function loadOwnedFamily(slug: string): Promise<FamilyAccess | null> {
   const normalizedSlug = slug.trim().toLocaleLowerCase("en-US");
   if (!isSafeSlug(normalizedSlug)) return null;
   try {
-    const data = await request<{ family: Family; shareToken?: string | null }>(`/api/families/${normalizedSlug}`);
-    return { family: normalizeFamily(data.family), shareToken: data.shareToken ?? null };
+    const data = await request<{
+      family: Family;
+      role?: FamilyRole;
+      viewToken?: string | null;
+      members?: FamilyMember[];
+      links?: ShareLink[];
+      edits?: FamilyEdit[];
+      accessLog?: AccessEvent[];
+    }>(`/api/families/${normalizedSlug}`);
+    return {
+      family: normalizeFamily(data.family),
+      role: data.role ?? "owner",
+      viewToken: data.viewToken ?? null,
+      members: data.members ?? [],
+      links: data.links ?? [],
+      edits: data.edits ?? [],
+      accessLog: data.accessLog ?? [],
+    };
   } catch (error) {
     if (statusOf(error) === 404) return null;
     throw error;
@@ -76,6 +102,61 @@ export function enqueueSave(family: Family): Promise<void> {
 export async function deleteFamily(slug: string): Promise<void> {
   if (!isSafeSlug(slug)) throw new Error("That family address is not valid.");
   await request("/api/families/" + slug, { method: "DELETE" });
+}
+
+export async function shareWithUser(slug: string, email: string, role: "editor" | "viewer"): Promise<AccessChange> {
+  return accessChange(
+    await request<AccessChange>(`/api/families/${slug}/members`, {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    }),
+  );
+}
+
+export async function setMemberRole(slug: string, userId: string, role: "editor" | "viewer"): Promise<AccessChange> {
+  return accessChange(
+    await request<AccessChange>(memberPath(slug, userId), {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    }),
+  );
+}
+
+export async function removeMember(slug: string, userId: string): Promise<AccessChange> {
+  return accessChange(await request<AccessChange>(memberPath(slug, userId), { method: "DELETE" }));
+}
+
+function memberPath(slug: string, userId: string) {
+  return `/api/families/${slug}/members/${encodeURIComponent(userId)}`;
+}
+
+export async function createShareLink(slug: string, expiry: "30" | "60" | "never"): Promise<AccessChange> {
+  return accessChange(
+    await request<AccessChange>(`/api/families/${slug}/links`, {
+      method: "POST",
+      body: JSON.stringify({ expiry }),
+    }),
+  );
+}
+
+export async function revokeShareLink(slug: string, linkId: string): Promise<AccessChange> {
+  return accessChange(await request<AccessChange>(`/api/families/${slug}/links/${linkId}`, { method: "DELETE" }));
+}
+
+export async function ensureViewLink(slug: string): Promise<string> {
+  const data = await request<{ shareToken: string }>(`/api/families/${slug}/view-link`, { method: "POST" });
+  if (!data.shareToken) throw new Error("Could not create a view link.");
+  return data.shareToken;
+}
+
+interface AccessChange {
+  members?: FamilyMember[];
+  links?: ShareLink[];
+  accessLog?: AccessEvent[];
+}
+
+function accessChange(data: AccessChange): AccessChange {
+  return { members: data.members ?? [], links: data.links ?? [], accessLog: data.accessLog ?? [] };
 }
 
 export async function generateShareLink(slug: string): Promise<string> {

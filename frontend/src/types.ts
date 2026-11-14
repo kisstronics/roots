@@ -26,13 +26,51 @@ export interface Family {
   updatedAt: string;
 }
 
+export type FamilyRole = "owner" | "editor" | "viewer";
+
+export interface FamilyMember {
+  userId: string;
+  email: string;
+  name: string;
+  role: "editor" | "viewer";
+  pending?: boolean;
+  createdBy?: string;
+  updatedBy?: string;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+}
+
+export interface AccessEvent {
+  id: string;
+  name: string;
+  email: string;
+  action: string;
+  targetEmail: string;
+  role: string;
+  createdAt: string;
+}
+
+export interface ShareLink {
+  id: string;
+  token: string;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface FamilyEdit {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+}
+
 export interface FamilySummary {
   slug: string;
   name: string;
   people: number;
   generations: number;
   shareToken?: string | null;
-  publicTree?: boolean;
+  role?: FamilyRole;
 }
 
 export type RelationKind =

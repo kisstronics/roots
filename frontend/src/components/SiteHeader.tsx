@@ -16,10 +16,10 @@ export function SiteHeader({ variant = "public" }: { variant?: "public" | "admin
         </span>
       </Link>
       <nav className="nav-links">
-        {variant === "admin" && <Link to="/">Public trees</Link>}
         {ready && user && (
           <>
             {variant === "public" && <Link to="/admin">Your families</Link>}
+            <Link to="/admin/access">Access</Link>
             {user.picture && <img className="user-photo" src={user.picture} alt="" referrerPolicy="no-referrer" />}
             {label && <span className="who">{label}</span>}
             <button

@@ -1,4 +1,3 @@
-import "./dev-defaults.mjs";
 import express from "express";
 import { attachApi } from "./app.mjs";
 import { send } from "./http.mjs";

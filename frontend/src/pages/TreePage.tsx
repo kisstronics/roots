@@ -29,8 +29,8 @@ export function TreePage() {
           );
         } else setFamily(loaded);
       })
-      .catch(() => {
-        if (!cancel) setError("The family could not be read.");
+      .catch((reason) => {
+        if (!cancel) setError(reason instanceof Error ? reason.message : "The family could not be read.");
       });
     return () => {
       cancel = true;
